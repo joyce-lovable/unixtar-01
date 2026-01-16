@@ -398,10 +398,16 @@ const Index = () => {
                 totalItems={mbomImport.totalItems}
                 totalMolds={mbomImport.totalMolds}
                 completedCount={mbomImport.completedCount}
+                syncedCount={mbomImport.syncedCount}
+                isSyncing={mbomImport.isSyncing}
+                autoOverwrite={mbomImport.autoOverwrite}
                 onSelectFile={mbomImport.selectFile}
                 onExportSingle={mbomImport.exportSingleExcel}
                 onExportAllMerged={mbomImport.exportAllMerged}
                 onExportAllSeparate={mbomImport.exportAllSeparate}
+                onSetAutoOverwrite={mbomImport.setAutoOverwrite}
+                onSyncSingle={mbomImport.syncSingleFile}
+                onSyncAll={mbomImport.syncAllFiles}
               />
             </div>
           )}
