@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      mbom_groups: {
+        Row: {
+          created_at: string
+          customer_part_name: string
+          downloaded: boolean
+          group_id: number
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_part_name: string
+          downloaded?: boolean
+          group_id?: number
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          customer_part_name?: string
+          downloaded?: boolean
+          group_id?: number
+          id?: string
+        }
+        Relationships: []
+      }
       mbom_results: {
         Row: {
           cad_sequence: number
@@ -21,6 +45,7 @@ export type Database = {
           created_at: string
           customer_part_name: string
           file_name: string
+          group_id: number | null
           has_substitute: string
           id: string
           main_part_number: string
@@ -38,6 +63,7 @@ export type Database = {
           created_at?: string
           customer_part_name: string
           file_name: string
+          group_id?: number | null
           has_substitute?: string
           id?: string
           main_part_number: string
@@ -55,6 +81,7 @@ export type Database = {
           created_at?: string
           customer_part_name?: string
           file_name?: string
+          group_id?: number | null
           has_substitute?: string
           id?: string
           main_part_number?: string
@@ -66,7 +93,15 @@ export type Database = {
           source?: string
           unit?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "mbom_results_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "mbom_groups"
+            referencedColumns: ["group_id"]
+          },
+        ]
       }
       mold_ocr_results: {
         Row: {
