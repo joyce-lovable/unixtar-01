@@ -316,13 +316,14 @@ export function useMbomImport() {
 
     try {
       const fileName = file.name;
+      const customerPartName = file.customerPartName;
 
-      // 如果需要覆蓋，先刪除該檔案的舊資料
-      if (overwrite) {
+      // 如果需要覆蓋，先刪除該客戶料號品名的舊資料
+      if (overwrite && customerPartName) {
         await supabase
           .from('mbom_results')
           .delete()
-          .eq('file_name', fileName);
+          .eq('customer_part_name', customerPartName);
       }
 
       // 準備插入資料
@@ -389,13 +390,14 @@ export function useMbomImport() {
     for (const file of completedFiles) {
       try {
         const fileName = file.name;
+        const customerPartName = file.customerPartName;
 
-        // 如果自動覆蓋，先刪除舊資料
-        if (state.autoOverwrite) {
+        // 如果自動覆蓋，先刪除該客戶料號品名的舊資料
+        if (state.autoOverwrite && customerPartName) {
           await supabase
             .from('mbom_results')
             .delete()
-            .eq('file_name', fileName);
+            .eq('customer_part_name', customerPartName);
         }
 
         const insertData = file.parsedData!.map(item => ({
