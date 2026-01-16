@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, FileImage, Send, ChevronDown, ChevronUp, Download, Image, Database } from 'lucide-react';
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { MakeWebhookFile } from '@/hooks/useMakeWebhook';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,8 @@ export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhook
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
-  const syncAttemptedRef = useRef(false);
+  // 追蹤已同步的檔案名稱，讓重試成功的檔案也能自動同步
+  const [syncedFileNames, setSyncedFileNames] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   
   // 覆蓋功能狀態（autoOverwrite 現在從 props 傳入）
@@ -294,6 +295,14 @@ export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhook
       throw error;
     }
 
+    // 同步成功後，將檔案名稱加入已同步清單
+    const syncedNames = [...new Set(data.map(d => d.file_name).filter(Boolean))];
+    setSyncedFileNames(prev => {
+      const newSet = new Set(prev);
+      syncedNames.forEach(name => newSet.add(name));
+      return newSet;
+    });
+
     const message = overwrittenCount > 0
       ? `已將 ${data.length} 筆資料寫入資料庫（覆蓋 ${overwrittenCount} 個檔案）`
       : `已將 ${data.length} 筆資料寫入資料庫`;
@@ -440,28 +449,28 @@ export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhook
     }
   };
 
-  // 自動同步：當處理完成且有資料時自動觸發
+  // 自動同步：當有新完成的檔案（包括重試成功的）且沒有正在處理的檔案時自動觸發
   useEffect(() => {
+    // 找出尚未同步的已完成檔案
+    const currentFileNames = completedFiles.map(f => f.name);
+    const hasUnSyncedFiles = currentFileNames.some(name => !syncedFileNames.has(name));
+
     const shouldAutoSync = 
-      processingFiles.length === 0 && 
-      allResultData.length > 0 && 
-      !hasSynced && 
-      !isSyncing &&
-      !syncAttemptedRef.current;
+      processingFiles.length === 0 &&   // 沒有正在處理的檔案
+      allResultData.length > 0 &&       // 有資料可同步
+      hasUnSyncedFiles &&               // 有未同步的已完成檔案
+      !isSyncing;                        // 沒有正在同步中
 
     if (shouldAutoSync) {
-      syncAttemptedRef.current = true;
-      handleSyncToSupabase().then(() => {
-        setHasSynced(true);
-      });
+      handleSyncToSupabase();
     }
-  }, [processingFiles.length, allResultData.length, hasSynced, isSyncing]);
+  }, [processingFiles.length, completedFiles, allResultData.length, syncedFileNames, isSyncing]);
 
   // 當 files 清空時重置同步狀態
   useEffect(() => {
     if (files.length === 0) {
       setHasSynced(false);
-      syncAttemptedRef.current = false;
+      setSyncedFileNames(new Set());
     }
   }, [files.length]);
 
