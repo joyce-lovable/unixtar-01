@@ -195,13 +195,13 @@ export const BatchOCRResults = ({
     return newGroup.group_id;
   };
 
-  // 準備要插入的資料（含 group_id）
-  const prepareInsertData = async () => {
+  // 準備指定檔案的插入資料（含 group_id）
+  const prepareInsertDataForFiles = async (filesToSync: FileWithParsedData[]) => {
     const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string; group_id: number | null }[] = [];
     let seqNumber = 1;
 
     // 收集所有不重複的 part_name 並取得 group_id
-    const partNames = [...new Set(completedFiles.map(f => f.parsedData.partName || '').filter(Boolean))];
+    const partNames = [...new Set(filesToSync.map(f => f.parsedData.partName || '').filter(Boolean))];
     const groupIdMap = new Map<string, number | null>();
     
     for (const partName of partNames) {
@@ -209,7 +209,7 @@ export const BatchOCRResults = ({
       groupIdMap.set(partName, groupId);
     }
 
-    completedFiles.forEach(file => {
+    filesToSync.forEach(file => {
       const allMolds = file.parsedData.molds.flatMap(e => e.expanded);
       const currentSeq = seqNumber;
       const partName = file.parsedData.partName || '';
@@ -267,20 +267,18 @@ export const BatchOCRResults = ({
 
   // 同步到 Supabase 資料庫
   const handleSyncToSupabase = async () => {
-    if (completedFiles.length === 0) {
-      toast({
-        title: '尚無可同步資料',
-        description: '請確認有完成的辨識結果',
-        variant: 'destructive',
-      });
-      return;
+    // 只處理尚未同步的檔案
+    const unSyncedCompletedFiles = completedFiles.filter(f => !syncedFileNames.has(f.name));
+    
+    if (unSyncedCompletedFiles.length === 0) {
+      return; // 沒有新檔案需要同步
     }
 
     setIsSyncing(true);
 
     try {
-      // 取得所有待同步的檔案名稱
-      const fileNames = [...new Set(completedFiles.map(f => f.name))];
+      // 只取得未同步檔案的名稱
+      const fileNames = [...new Set(unSyncedCompletedFiles.map(f => f.name))];
 
       // 檢查資料庫中是否已存在相同檔案名稱
       const { data: existingFiles } = await supabase
@@ -290,7 +288,9 @@ export const BatchOCRResults = ({
 
       const existingFileNames = new Set(existingFiles?.map(f => f.file_name) || []);
       const duplicates = fileNames.filter(name => existingFileNames.has(name));
-      const insertData = await prepareInsertData();
+      
+      // 只準備未同步檔案的資料
+      const insertData = await prepareInsertDataForFiles(unSyncedCompletedFiles);
 
       // 如果有重複檔案
       if (duplicates.length > 0) {
@@ -373,6 +373,11 @@ export const BatchOCRResults = ({
           description: '所有檔案都已存在於資料庫中',
         });
       }
+      
+      // 關鍵修改：無論是否寫入新資料，都要標記所有處理過的檔案為已同步（包括被跳過的）
+      const allFileNames = [...new Set(pendingInsertData.map(d => d.file_name))];
+      markFilesAsSynced(allFileNames);
+      
       setHasSynced(true);
     } catch (error: any) {
       console.error('同步失敗:', error);
