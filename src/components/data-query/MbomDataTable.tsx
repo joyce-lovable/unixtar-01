@@ -93,9 +93,7 @@ const MbomDataTable = () => {
         .from('mbom_results')
         .select('*', { count: 'exact' })
         .order('group_id', { ascending: true, nullsFirst: false })
-        .order('customer_part_name', { ascending: true })
-        .order('main_part_number', { ascending: true })
-        .order('cad_sequence', { ascending: true });
+        .order('sort_order', { ascending: true });
 
       if (searchTerm) {
         query = query.or(`customer_part_name.ilike.%${searchTerm}%,main_part_number.ilike.%${searchTerm}%,component_part_number.ilike.%${searchTerm}%,file_name.ilike.%${searchTerm}%`);
@@ -275,9 +273,7 @@ const MbomDataTable = () => {
           .select('*')
           .in('group_id', groupIdsToExport)
           .order('group_id', { ascending: true })
-          .order('customer_part_name', { ascending: true })
-          .order('main_part_number', { ascending: true })
-          .order('cad_sequence', { ascending: true });
+          .order('sort_order', { ascending: true });
         
         if (error) {
           console.error('Error fetching full group data:', error);

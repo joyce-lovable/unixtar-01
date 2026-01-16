@@ -54,6 +54,7 @@ export type Database = {
           production_process: string
           quantity: number
           remark: string | null
+          sort_order: number
           source: string
           unit: string
         }
@@ -72,6 +73,7 @@ export type Database = {
           production_process?: string
           quantity: number
           remark?: string | null
+          sort_order?: number
           source?: string
           unit: string
         }
@@ -90,6 +92,7 @@ export type Database = {
           production_process?: string
           quantity?: number
           remark?: string | null
+          sort_order?: number
           source?: string
           unit?: string
         }

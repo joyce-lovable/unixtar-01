@@ -21,6 +21,7 @@ export interface MbomItem {
   materialQuality: string;        // 用料素質 (系統代碼)
   remark: string;                 // 備註說明
   source: 'txt' | 'mold' | 'sub'; // 資料來源標記
+  sortOrder: number;              // 組內排序順序
 }
 
 /**
@@ -275,6 +276,7 @@ export function assembleMbomData(
   const { mainPartNumber, customerPartName, mainItems, subAssemblies } = parsed;
   
   let cadSequence = 1;
+  let sortOrder = 1;  // 全組連續排序計數器
   
   // 1. 成品區段的零件 (source: 'txt')
   for (const item of mainItems) {
@@ -293,6 +295,7 @@ export function assembleMbomData(
       materialQuality: '00',
       remark: item.remark,
       source: 'txt',
+      sortOrder: sortOrder++,
     });
   }
   
@@ -311,6 +314,7 @@ export function assembleMbomData(
       materialQuality: '90',
       remark: '',
       source: 'mold',
+      sortOrder: sortOrder++,
     });
   }
   
@@ -337,6 +341,7 @@ export function assembleMbomData(
         materialQuality: '00',
         remark: item.remark,
         source: 'sub',
+        sortOrder: sortOrder++,
       });
     }
   }
