@@ -435,12 +435,13 @@ export const BatchOCRResults = ({ files, autoOverwrite = false }: BatchOCRResult
     const shouldAutoSync = 
       processingFiles.length === 0 &&   // 沒有正在處理的檔案
       unSyncedFiles.length > 0 &&       // 有未同步的已完成檔案
-      !isSyncing;                        // 沒有正在同步中
+      !isSyncing &&                      // 沒有正在同步中
+      !showDuplicateDialog;              // 沒有顯示重複對話框
 
     if (shouldAutoSync) {
       handleSyncToSupabase();
     }
-  }, [processingFiles.length, completedFiles, syncedFileNames, isSyncing]);
+  }, [processingFiles.length, completedFiles, syncedFileNames, isSyncing, showDuplicateDialog]);
 
   // 當 files 清空時重置同步狀態
   useEffect(() => {
