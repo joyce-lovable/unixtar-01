@@ -82,11 +82,13 @@ export function extractPartNumberFromFilename(filename: string): string | null {
   // 移除副檔名
   let name = filename.replace(/\.(png|jpg|jpeg|pdf|gif|bmp|tiff?)$/i, '');
 
+  // 移除 = 後面的所有內容（如 =D、=E、=D 單頁 等版本標記）
+  name = name.replace(/=.*$/, '');
+
   // 移除結尾的 -UN (不區分大小寫)
   name = name.replace(/-UN$/i, '');
 
-  // 移除檔名常見的尾碼（例如 -C=E、-C=D 之類的 REV/版本資訊）
-  name = name.replace(/-C=[A-Z0-9]+.*$/i, '');
+  // 移除檔名常見的尾碼（REV/版本資訊）
   name = name.replace(/[-_]?REV.*$/i, '');
 
   name = name.trim();
@@ -118,8 +120,14 @@ export function extractPartNameFromFilename(filename: string): string | null {
   // 移除副檔名
   let name = filename.replace(/\.(png|jpg|jpeg|pdf|gif|bmp|tiff?)$/i, '');
   
+  // 移除 = 後面的所有內容（如 =D、=E、=D 單頁 等版本標記）
+  name = name.replace(/=.*$/, '');
+  
   // 移除結尾的 -UN (不區分大小寫)
   name = name.replace(/-UN$/i, '');
+  
+  // 移除前後空白
+  name = name.trim();
   
   return name || null;
 }
