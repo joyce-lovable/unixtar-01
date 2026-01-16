@@ -29,6 +29,7 @@ import {
 
 interface MakeWebhookResultsProps {
   files: MakeWebhookFile[];
+  autoOverwrite?: boolean;  // 從外部傳入的自動覆蓋設定
 }
 
 // 解析回傳資料格式: ["010","10",201,"裁線"] 或 ["30205068-00","010","10",201,"裁線"]
@@ -40,15 +41,14 @@ interface SopRowData {
   processName: string; // 製程名稱
 }
 
-export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
+export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhookResultsProps) => {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
   const syncAttemptedRef = useRef(false);
   const { toast } = useToast();
   
-  // 覆蓋功能狀態
-  const [autoOverwrite, setAutoOverwrite] = useState(false);
+  // 覆蓋功能狀態（autoOverwrite 現在從 props 傳入）
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateFileNames, setDuplicateFileNames] = useState<string[]>([]);
   const [pendingInsertData, setPendingInsertData] = useState<{
@@ -496,19 +496,11 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
             </span>
           )}
           <span className="text-xs text-muted-foreground">解析 {allResultData.length} 筆</span>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="autoOverwriteSop"
-              checked={autoOverwrite}
-              onCheckedChange={(checked) => setAutoOverwrite(checked === true)}
-            />
-            <label
-              htmlFor="autoOverwriteSop"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
-            >
-              遇重複自動覆蓋
-            </label>
-          </div>
+          {autoOverwrite && (
+            <span className="text-xs text-amber-500 flex items-center gap-1">
+              自動覆蓋已啟用
+            </span>
+          )}
           <Button
             onClick={handleSyncToSupabase}
             size="sm"
