@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Download, FileText, CheckCircle, ChevronDown, ChevronUp, Copy, Check, Clock, RefreshCw, RotateCw, Image } from 'lucide-react';
+import { Download, FileText, CheckCircle, ChevronDown, ChevronUp, Copy, Check, Clock, RefreshCw, RotateCw, Image, Database, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { parseMoldEntries, type ParsedData } from '@/lib/moldParser';
+import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 
 interface OCRTiming {
@@ -45,6 +46,9 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
   const { toast } = useToast();
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [hasSynced, setHasSynced] = useState(false);
+  const syncAttemptedRef = useRef(false);
 
   const completedFiles = useMemo(() => {
     return files
@@ -140,6 +144,71 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
     });
   };
 
+  // 同步到 Supabase 資料庫
+  const handleSyncToSupabase = async () => {
+    if (completedFiles.length === 0) {
+      toast({
+        title: '尚無可同步資料',
+        description: '請確認有完成的辨識結果',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSyncing(true);
+
+    try {
+      const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string }[] = [];
+      let seqNumber = 1;
+
+      completedFiles.forEach(file => {
+        const allMolds = file.parsedData.molds.flatMap(e => e.expanded);
+        const currentSeq = seqNumber;
+        seqNumber++;
+
+        if (allMolds.length > 0) {
+          allMolds.forEach(mold => {
+            insertData.push({
+              seq_number: currentSeq,
+              file_name: file.name,
+              part_name: file.parsedData.partName || '',
+              mold_number: mold,
+            });
+          });
+        } else {
+          insertData.push({
+            seq_number: currentSeq,
+            file_name: file.name,
+            part_name: file.parsedData.partName || '',
+            mold_number: '',
+          });
+        }
+      });
+
+      const { error } = await supabase
+        .from('mold_ocr_results')
+        .insert(insertData);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: '同步成功',
+        description: `已將 ${insertData.length} 筆資料寫入資料庫`,
+      });
+    } catch (error: any) {
+      console.error('同步到 Supabase 失敗:', error);
+      toast({
+        title: '同步失敗',
+        description: error.message || '寫入資料庫時發生錯誤',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
@@ -179,6 +248,34 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
     };
   }, [completedFiles]);
 
+  // 計算處理中的檔案
+  const processingFiles = files.filter(f => f.status === 'processing' || f.status === 'pending');
+
+  // 自動同步：當處理完成且有資料時自動觸發
+  useEffect(() => {
+    const shouldAutoSync = 
+      processingFiles.length === 0 && 
+      completedFiles.length > 0 && 
+      !hasSynced && 
+      !isSyncing &&
+      !syncAttemptedRef.current;
+
+    if (shouldAutoSync) {
+      syncAttemptedRef.current = true;
+      handleSyncToSupabase().then(() => {
+        setHasSynced(true);
+      });
+    }
+  }, [processingFiles.length, completedFiles.length, hasSynced, isSyncing]);
+
+  // 當 files 清空時重置同步狀態
+  useEffect(() => {
+    if (files.length === 0) {
+      setHasSynced(false);
+      syncAttemptedRef.current = false;
+    }
+  }, [files.length]);
+
   if (completedFiles.length === 0) return null;
 
   return (
@@ -199,10 +296,32 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
             </p>
           </div>
         </div>
-        <Button onClick={handleDownloadExcel} className="gap-2">
-          <Download className="w-4 h-4" />
-          下載全部 Excel
-        </Button>
+        <div className="flex items-center gap-2">
+          {hasSynced && (
+            <span className="text-xs text-green-500 flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" />
+              已同步
+            </span>
+          )}
+          <Button
+            onClick={handleSyncToSupabase}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={completedFiles.length === 0 || isSyncing}
+          >
+            {isSyncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Database className="w-4 h-4" />
+            )}
+            {isSyncing ? '同步中...' : '同步到資料庫'}
+          </Button>
+          <Button onClick={handleDownloadExcel} className="gap-2">
+            <Download className="w-4 h-4" />
+            下載全部 Excel
+          </Button>
+        </div>
       </div>
 
       {/* 總體效能統計 */}

@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      mold_ocr_results: {
+        Row: {
+          created_at: string
+          file_name: string
+          id: string
+          mold_number: string
+          part_name: string
+          seq_number: number
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          id?: string
+          mold_number: string
+          part_name: string
+          seq_number: number
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          id?: string
+          mold_number?: string
+          part_name?: string
+          seq_number?: number
+        }
+        Relationships: []
+      }
       sop_ocr_results: {
         Row: {
           created_at: string

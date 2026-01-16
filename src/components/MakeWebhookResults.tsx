@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Loader2, FileImage, Send, ChevronDown, ChevronUp, Download, Image, Database } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { MakeWebhookFile } from '@/hooks/useMakeWebhook';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,8 @@ interface SopRowData {
 export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
+  const [hasSynced, setHasSynced] = useState(false);
+  const syncAttemptedRef = useRef(false);
   const { toast } = useToast();
 
   const toggleExpand = (fileId: string) => {
@@ -244,6 +246,31 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
       setIsSyncing(false);
     }
   };
+
+  // 自動同步：當處理完成且有資料時自動觸發
+  useEffect(() => {
+    const shouldAutoSync = 
+      processingFiles.length === 0 && 
+      allResultData.length > 0 && 
+      !hasSynced && 
+      !isSyncing &&
+      !syncAttemptedRef.current;
+
+    if (shouldAutoSync) {
+      syncAttemptedRef.current = true;
+      handleSyncToSupabase().then(() => {
+        setHasSynced(true);
+      });
+    }
+  }, [processingFiles.length, allResultData.length, hasSynced, isSyncing]);
+
+  // 當 files 清空時重置同步狀態
+  useEffect(() => {
+    if (files.length === 0) {
+      setHasSynced(false);
+      syncAttemptedRef.current = false;
+    }
+  }, [files.length]);
 
   return (
     <motion.div
