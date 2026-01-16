@@ -1,10 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, XCircle, Loader2, FileImage, Send, ChevronDown, ChevronUp, Download, Image } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, FileImage, Send, ChevronDown, ChevronUp, Download, Image, Database } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { MakeWebhookFile } from '@/hooks/useMakeWebhook';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
 import {
   Table,
@@ -29,6 +30,7 @@ interface SopRowData {
 
 export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [isSyncing, setIsSyncing] = useState(false);
   const { toast } = useToast();
 
   const toggleExpand = (fileId: string) => {
@@ -47,10 +49,12 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
   const errorFiles = files.filter(f => f.status === 'error');
   const processingFiles = files.filter(f => f.status === 'converting' || f.status === 'sending');
 
-  // 從檔名提取料號 (去除副檔名和 =H 等後綴)
+  // 從檔名提取料號 (去除副檔名、=H 等後綴、以及結尾的 -UN)
   const extractPartNumber = (fileName: string): string => {
-    const nameWithoutExt = fileName.replace(/\.[^.]+$/, '');
-    return nameWithoutExt.replace(/=.*$/, '');
+    return fileName
+      .replace(/\.[^.]+$/, '')    // 移除副檔名
+      .replace(/=.*$/, '')         // 移除 = 之後的內容
+      .replace(/-UN$/i, '');       // 移除結尾的 -UN（不分大小寫）
   };
 
   // 解析單頁結果為 SopRowData[]
@@ -172,6 +176,75 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
     });
   };
 
+  // 同步到 Supabase 資料庫
+  const handleSyncToSupabase = async () => {
+    if (allResultData.length === 0) {
+      toast({
+        title: '尚無可同步資料',
+        description: '請確認每頁都有回傳可解析的資料',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSyncing(true);
+
+    try {
+      // 準備要插入的資料，加入檔案名稱
+      const insertData = allResultData.map((row, index) => {
+        // 找到對應的檔案名稱
+        let fileName = '';
+        let currentIndex = 0;
+        
+        for (const file of completedFiles) {
+          const defaultPartNumber = extractPartNumber(file.name);
+          for (const page of file.pages || []) {
+            if (page.status !== 'completed' || page.result == null) continue;
+            const resultText = getResultText(page.result);
+            const pageRows = parseResultText(resultText, defaultPartNumber);
+            if (index >= currentIndex && index < currentIndex + pageRows.length) {
+              fileName = file.name;
+              break;
+            }
+            currentIndex += pageRows.length;
+          }
+          if (fileName) break;
+        }
+
+        return {
+          part_number: row.partNumber,
+          operation: row.operation,
+          sequence: row.sequence,
+          process_code: row.processCode,
+          process_name: row.processName,
+          file_name: fileName,
+        };
+      });
+
+      const { error } = await supabase
+        .from('sop_ocr_results')
+        .insert(insertData);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: '同步成功',
+        description: `已將 ${insertData.length} 筆資料寫入資料庫`,
+      });
+    } catch (error: any) {
+      console.error('同步到 Supabase 失敗:', error);
+      toast({
+        title: '同步失敗',
+        description: error.message || '寫入資料庫時發生錯誤',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -203,6 +276,20 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
             </span>
           )}
           <span className="text-xs text-muted-foreground">解析 {allResultData.length} 筆</span>
+          <Button
+            onClick={handleSyncToSupabase}
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            disabled={allResultData.length === 0 || isSyncing}
+          >
+            {isSyncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Database className="w-4 h-4" />
+            )}
+            {isSyncing ? '同步中...' : '同步到資料庫'}
+          </Button>
           <Button
             onClick={handleDownloadExcel}
             size="sm"
