@@ -459,12 +459,13 @@ export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhook
       processingFiles.length === 0 &&   // 沒有正在處理的檔案
       allResultData.length > 0 &&       // 有資料可同步
       hasUnSyncedFiles &&               // 有未同步的已完成檔案
-      !isSyncing;                        // 沒有正在同步中
+      !isSyncing &&                      // 沒有正在同步中
+      !showDuplicateDialog;              // 沒有顯示重複對話框
 
     if (shouldAutoSync) {
       handleSyncToSupabase();
     }
-  }, [processingFiles.length, completedFiles, allResultData.length, syncedFileNames, isSyncing]);
+  }, [processingFiles.length, completedFiles, allResultData.length, syncedFileNames, isSyncing, showDuplicateDialog]);
 
   // 當 files 清空時重置同步狀態
   useEffect(() => {
