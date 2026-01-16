@@ -42,7 +42,8 @@ const MbomDataTable = () => {
       let query = supabase
         .from('mbom_results')
         .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false });
+        .order('customer_part_name', { ascending: true })
+        .order('cad_sequence', { ascending: true });
 
       if (searchTerm) {
         query = query.or(`customer_part_name.ilike.%${searchTerm}%,main_part_number.ilike.%${searchTerm}%,component_part_number.ilike.%${searchTerm}%,file_name.ilike.%${searchTerm}%`);
