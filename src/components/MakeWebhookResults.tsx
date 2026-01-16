@@ -30,6 +30,8 @@ import {
 interface MakeWebhookResultsProps {
   files: MakeWebhookFile[];
   autoOverwrite?: boolean;  // 從外部傳入的自動覆蓋設定
+  syncedFileNames: Set<string>;           // 從 hook 傳入的已同步檔案清單
+  markFilesAsSynced: (names: string[]) => void;  // 從 hook 傳入的標記方法
 }
 
 // 解析回傳資料格式: ["010","10",201,"裁線"] 或 ["30205068-00","010","10",201,"裁線"]
@@ -41,12 +43,15 @@ interface SopRowData {
   processName: string; // 製程名稱
 }
 
-export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhookResultsProps) => {
+export const MakeWebhookResults = ({ 
+  files, 
+  autoOverwrite = false,
+  syncedFileNames,
+  markFilesAsSynced,
+}: MakeWebhookResultsProps) => {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
-  // 追蹤已同步的檔案名稱，讓重試成功的檔案也能自動同步
-  const [syncedFileNames, setSyncedFileNames] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   
   // 覆蓋功能狀態（autoOverwrite 現在從 props 傳入）
@@ -295,13 +300,9 @@ export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhook
       throw error;
     }
 
-    // 同步成功後，將檔案名稱加入已同步清單
+    // 同步成功後，將檔案名稱加入已同步清單（使用 props 的方法）
     const syncedNames = [...new Set(data.map(d => d.file_name).filter(Boolean))];
-    setSyncedFileNames(prev => {
-      const newSet = new Set(prev);
-      syncedNames.forEach(name => newSet.add(name));
-      return newSet;
-    });
+    markFilesAsSynced(syncedNames);
 
     const message = overwrittenCount > 0
       ? `已將 ${data.length} 筆資料寫入資料庫（覆蓋 ${overwrittenCount} 個檔案）`
@@ -467,11 +468,10 @@ export const MakeWebhookResults = ({ files, autoOverwrite = false }: MakeWebhook
     }
   }, [processingFiles.length, completedFiles, allResultData.length, syncedFileNames, isSyncing, showDuplicateDialog]);
 
-  // 當 files 清空時重置同步狀態
+  // 當 files 清空時重置 hasSynced（syncedFileNames 已在 hook 層級管理）
   useEffect(() => {
     if (files.length === 0) {
       setHasSynced(false);
-      setSyncedFileNames(new Set());
     }
   }, [files.length]);
 

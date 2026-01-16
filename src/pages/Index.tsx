@@ -438,7 +438,12 @@ const Index = () => {
                 <BatchOCRResults files={moldOCR.files} autoOverwrite={moldAutoOverwrite} />
               )}
               {functionMode === 'sop' && (
-                <MakeWebhookResults files={sopWebhook.files} autoOverwrite={sopAutoOverwrite} />
+                <MakeWebhookResults 
+                  files={sopWebhook.files} 
+                  autoOverwrite={sopAutoOverwrite}
+                  syncedFileNames={sopWebhook.syncedFileNames}
+                  markFilesAsSynced={sopWebhook.markFilesAsSynced}
+                />
               )}
               {functionMode === 'orientation' && (
                 <OrientationDetectResults files={orientationDetect.files} />
@@ -460,19 +465,23 @@ const Index = () => {
                   result: f.result ? { text: f.result.text, confidence: f.result.confidence } : undefined,
                 }))} />
               ) : (
-                <MakeWebhookResults files={driveFiles.filter(f => f.status === 'completed').map(f => ({
-                  id: f.id,
-                  file: null as any,
-                  name: f.name,
-                  size: 0,
-                  status: 'completed' as const,
-                  pages: [{
-                    id: `${f.id}-page-1`,
-                    pageNumber: 1,
+                <MakeWebhookResults 
+                  files={driveFiles.filter(f => f.status === 'completed').map(f => ({
+                    id: f.id,
+                    file: null as any,
+                    name: f.name,
+                    size: 0,
                     status: 'completed' as const,
-                    result: f.result?.text,
-                  }],
-                }))} />
+                    pages: [{
+                      id: `${f.id}-page-1`,
+                      pageNumber: 1,
+                      status: 'completed' as const,
+                      result: f.result?.text,
+                    }],
+                  }))}
+                  syncedFileNames={sopWebhook.syncedFileNames}
+                  markFilesAsSynced={sopWebhook.markFilesAsSynced}
+                />
               )}
             </div>
           )}
