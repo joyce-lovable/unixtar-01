@@ -120,13 +120,11 @@ const SopDataTable = () => {
     }
 
     const wsData = dataToExport.map(r => ({
-      '檔案名稱': r.file_name || '',
       '料號': r.part_number,
-      '製程代碼': r.process_code,
+      '工序': r.operation,
+      '序號': r.sequence,
+      '製程編碼': r.process_code,
       '製程名稱': r.process_name,
-      '作業': r.operation,
-      '順序': r.sequence,
-      '建立時間': new Date(r.created_at).toLocaleString('zh-TW'),
     }));
 
     const ws = XLSX.utils.json_to_sheet(wsData);
@@ -177,25 +175,23 @@ const SopDataTable = () => {
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
-              <TableHead>檔案名稱</TableHead>
               <TableHead>料號</TableHead>
-              <TableHead className="w-24">製程代碼</TableHead>
+              <TableHead>工序</TableHead>
+              <TableHead className="w-20">序號</TableHead>
+              <TableHead className="w-24">製程編碼</TableHead>
               <TableHead>製程名稱</TableHead>
-              <TableHead>作業</TableHead>
-              <TableHead className="w-20">順序</TableHead>
-              <TableHead className="w-40">建立時間</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   載入中...
                 </TableCell>
               </TableRow>
             ) : records.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   {searchTerm ? '找不到符合的資料' : '尚無資料'}
                 </TableCell>
               </TableRow>
@@ -211,15 +207,11 @@ const SopDataTable = () => {
                       onCheckedChange={(checked) => handleSelectOne(record.id, !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-sm">{record.file_name || '-'}</TableCell>
                   <TableCell className="font-mono">{record.part_number}</TableCell>
-                  <TableCell>{record.process_code}</TableCell>
-                  <TableCell>{record.process_name}</TableCell>
                   <TableCell>{record.operation}</TableCell>
                   <TableCell>{record.sequence}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {new Date(record.created_at).toLocaleString('zh-TW')}
-                  </TableCell>
+                  <TableCell>{record.process_code}</TableCell>
+                  <TableCell>{record.process_name}</TableCell>
                 </TableRow>
               ))
             )}
