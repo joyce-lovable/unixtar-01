@@ -158,10 +158,43 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
     setIsSyncing(true);
 
     try {
+      // 取得所有待同步的檔案名稱
+      const fileNames = [...new Set(completedFiles.map(f => f.name))];
+
+      // 檢查資料庫中是否已存在相同檔案名稱
+      const { data: existingFiles } = await supabase
+        .from('mold_ocr_results')
+        .select('file_name')
+        .in('file_name', fileNames);
+
+      const existingFileNames = new Set(existingFiles?.map(f => f.file_name) || []);
+
+      // 找出重複的檔案並逐一顯示提示
+      const duplicateFiles = fileNames.filter(name => existingFileNames.has(name));
+      duplicateFiles.forEach(name => {
+        toast({
+          title: '檔案已存在',
+          description: `${name} 已上傳過資料庫，跳過此檔案`,
+        });
+      });
+
+      // 過濾掉重複檔案
+      const newCompletedFiles = completedFiles.filter(f => !existingFileNames.has(f.name));
+
+      // 如果沒有新檔案需要寫入
+      if (newCompletedFiles.length === 0) {
+        toast({
+          title: '無新資料需同步',
+          description: '所有檔案都已存在於資料庫中',
+        });
+        setHasSynced(true);
+        return;
+      }
+
       const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string }[] = [];
       let seqNumber = 1;
 
-      completedFiles.forEach(file => {
+      newCompletedFiles.forEach(file => {
         const allMolds = file.parsedData.molds.flatMap(e => e.expanded);
         const currentSeq = seqNumber;
         seqNumber++;
@@ -197,6 +230,7 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
         title: '同步成功',
         description: `已將 ${insertData.length} 筆資料寫入資料庫`,
       });
+      setHasSynced(true);
     } catch (error: any) {
       console.error('同步到 Supabase 失敗:', error);
       toast({

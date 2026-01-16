@@ -223,9 +223,41 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
         };
       });
 
+      // 檢查資料庫中是否已存在相同檔案名稱
+      const fileNames = [...new Set(insertData.map(d => d.file_name).filter(n => n))];
+      
+      const { data: existingFiles } = await supabase
+        .from('sop_ocr_results')
+        .select('file_name')
+        .in('file_name', fileNames);
+
+      const existingFileNames = new Set(existingFiles?.map(f => f.file_name) || []);
+      
+      // 找出重複的檔案並逐一顯示提示
+      const duplicateFiles = fileNames.filter(name => existingFileNames.has(name));
+      duplicateFiles.forEach(name => {
+        toast({
+          title: '檔案已存在',
+          description: `${name} 已上傳過資料庫，跳過此檔案`,
+        });
+      });
+
+      // 過濾掉重複檔案的資料
+      const newData = insertData.filter(row => !existingFileNames.has(row.file_name));
+
+      // 如果沒有新資料需要寫入
+      if (newData.length === 0) {
+        toast({
+          title: '無新資料需同步',
+          description: '所有檔案都已存在於資料庫中',
+        });
+        setHasSynced(true);
+        return;
+      }
+
       const { error } = await supabase
         .from('sop_ocr_results')
-        .insert(insertData);
+        .insert(newData);
 
       if (error) {
         throw error;
@@ -233,8 +265,9 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
 
       toast({
         title: '同步成功',
-        description: `已將 ${insertData.length} 筆資料寫入資料庫`,
+        description: `已將 ${newData.length} 筆資料寫入資料庫`,
       });
+      setHasSynced(true);
     } catch (error: any) {
       console.error('同步到 Supabase 失敗:', error);
       toast({
