@@ -222,17 +222,14 @@ const MoldDataTable = () => {
     }
   };
 
-  const handleExport = async () => {
-    const dataToExport = selectedIds.size > 0
-      ? records.filter(r => selectedIds.has(r.id))
-      : records;
-
-    if (dataToExport.length === 0) {
+  // 匯出 Excel 的共用函數
+  const exportToExcel = (data: MoldRecord[]) => {
+    if (data.length === 0) {
       toast.warning('沒有可匯出的資料');
       return;
     }
 
-    const wsData = dataToExport.map(r => ({
+    const wsData = data.map(r => ({
       '組號': r.group_id || '-',
       '品名': r.part_name,
       '模號': r.mold_number,
@@ -243,11 +240,40 @@ const MoldDataTable = () => {
     XLSX.utils.book_append_sheet(wb, ws, '模具編號');
     XLSX.writeFile(wb, `模具編號_${new Date().toISOString().slice(0, 10)}.xlsx`);
     
-    // 標記匯出的群組為已下載
-    const exportedGroupIds = [...new Set(dataToExport.map(r => r.group_id).filter(Boolean))] as number[];
-    await markGroupsAsDownloaded(exportedGroupIds);
+    toast.success(`已匯出 ${data.length} 筆資料`);
+  };
+
+  const handleExport = async () => {
+    // 如果有選取資料，取得選取資料涉及的所有 group_id，並查詢完整組資料
+    if (selectedIds.size > 0) {
+      const selectedRecords = records.filter(r => selectedIds.has(r.id));
+      const groupIdsToExport = [...new Set(selectedRecords.map(r => r.group_id).filter(Boolean))] as number[];
+      
+      if (groupIdsToExport.length > 0) {
+        // 查詢這些組的完整資料（不受分頁限制）
+        const { data: fullData, error } = await supabase
+          .from('mold_ocr_results')
+          .select('*')
+          .in('group_id', groupIdsToExport)
+          .order('group_id', { ascending: true })
+          .order('part_name', { ascending: true })
+          .order('seq_number', { ascending: true });
+        
+        if (error) {
+          console.error('Error fetching full group data:', error);
+          toast.error('匯出失敗');
+          return;
+        }
+        
+        exportToExcel(fullData || []);
+        await markGroupsAsDownloaded(groupIdsToExport);
+        fetchGroups();
+        return;
+      }
+    }
     
-    toast.success('匯出成功');
+    // 如果沒有選取，則匯出當前頁面資料
+    exportToExcel(records);
   };
 
   // 清空所有下載記錄
@@ -284,6 +310,11 @@ const MoldDataTable = () => {
 
   // 取得唯一的群組列表（當前頁面）
   const uniqueGroupIds = [...new Set(records.map(r => r.group_id).filter(Boolean))] as number[];
+
+  // 計算選取的記錄涉及多少組
+  const selectedGroupIds = [...new Set(
+    records.filter(r => selectedIds.has(r.id)).map(r => r.group_id).filter(Boolean)
+  )] as number[];
 
   // 計算下載和未下載的群組數量
   const downloadedGroupCount = groups.filter(g => g.downloaded).length;
@@ -324,7 +355,7 @@ const MoldDataTable = () => {
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport} className="text-emerald-600 border-emerald-300 hover:bg-emerald-50">
           <Download className="w-4 h-4 mr-2" />
-          匯出 Excel {selectedIds.size > 0 && `(${selectedIds.size})`}
+          匯出 Excel {selectedGroupIds.length > 0 && `(${selectedGroupIds.length} 組)`}
         </Button>
         <Button variant="outline" size="sm" onClick={handleClearDownloadHistory} className="text-amber-600 border-amber-300 hover:bg-amber-50">
           <RotateCcw className="w-4 h-4 mr-2" />
