@@ -39,10 +39,12 @@ const MbomDataTable = () => {
   const fetchRecords = async () => {
     setLoading(true);
     try {
+      // 使用 RPC 或自訂排序：先按客戶料號品名，再按 source 順序（txt -> mold -> sub），最後按 CAD 項次
       let query = supabase
         .from('mbom_results')
         .select('*', { count: 'exact' })
         .order('customer_part_name', { ascending: true })
+        .order('main_part_number', { ascending: true })
         .order('cad_sequence', { ascending: true });
 
       if (searchTerm) {
