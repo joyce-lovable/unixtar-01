@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { loadPdfjs } from '@/lib/pdfjs';
 
 export interface OCRTiming {
   orientationDuration?: number;
@@ -120,9 +121,7 @@ export const useBatchOCR = () => {
   };
 
   const convertPdfToImages = async (file: File): Promise<{ base64List: string[], dataUrls: string[] }> => {
-    const { pdfjs } = await import('react-pdf');
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
+    const pdfjs = await loadPdfjs();
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
     const base64List: string[] = [];
