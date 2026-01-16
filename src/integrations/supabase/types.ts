@@ -14,7 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      sop_ocr_results: {
+        Row: {
+          created_at: string
+          file_name: string | null
+          id: string
+          operation: string
+          part_number: string
+          process_code: number
+          process_name: string
+          sequence: string
+        }
+        Insert: {
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          operation: string
+          part_number: string
+          process_code: number
+          process_name: string
+          sequence: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          operation?: string
+          part_number?: string
+          process_code?: number
+          process_name?: string
+          sequence?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
