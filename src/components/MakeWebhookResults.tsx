@@ -317,19 +317,66 @@ export const MakeWebhookResults = ({
 
   // 同步到 Supabase 資料庫
   const handleSyncToSupabase = async () => {
-    if (allResultData.length === 0) {
-      toast({
-        title: '尚無可同步資料',
-        description: '請確認每頁都有回傳可解析的資料',
-        variant: 'destructive',
+    // 只處理尚未同步的檔案
+    const unSyncedFiles = completedFiles.filter(f => !syncedFileNames.has(f.name));
+    
+    if (unSyncedFiles.length === 0) {
+      return; // 沒有新檔案需要同步
+    }
+
+    // 收集未同步檔案的結果資料
+    const unSyncedResultData: SopRowData[] = [];
+    unSyncedFiles.forEach(file => {
+      const defaultPartNumber = extractPartNumber(file.name);
+      file.pages?.forEach(page => {
+        if (page.status !== 'completed' || page.result == null) return;
+        try {
+          const resultText = getResultText(page.result);
+          unSyncedResultData.push(...parseResultText(resultText, defaultPartNumber));
+        } catch (e) {
+          console.error('解析結果資料失敗:', e);
+        }
       });
+    });
+
+    if (unSyncedResultData.length === 0) {
       return;
     }
 
     setIsSyncing(true);
 
     try {
-      const insertData = await prepareInsertData();
+      // 準備未同步檔案的插入資料
+      const uniquePartNumbers = [...new Set(unSyncedResultData.map(r => r.partNumber))];
+      const partNumberToGroupId: Map<string, number> = new Map();
+      for (const partNumber of uniquePartNumbers) {
+        const groupId = await getOrCreateGroupId(partNumber);
+        partNumberToGroupId.set(partNumber, groupId);
+      }
+
+      const insertData: typeof pendingInsertData = [];
+      let currentIndex = 0;
+      
+      for (const file of unSyncedFiles) {
+        const defaultPartNumber = extractPartNumber(file.name);
+        for (const page of file.pages || []) {
+          if (page.status !== 'completed' || page.result == null) continue;
+          const resultText = getResultText(page.result);
+          const pageRows = parseResultText(resultText, defaultPartNumber);
+          
+          pageRows.forEach(row => {
+            insertData.push({
+              part_number: row.partNumber,
+              operation: row.operation,
+              sequence: row.sequence,
+              process_code: row.processCode,
+              process_name: row.processName,
+              file_name: file.name,
+              group_id: partNumberToGroupId.get(row.partNumber)!,
+            });
+          });
+        }
+      }
       
       // 檢查資料庫中是否已存在相同檔案名稱
       const fileNames = [...new Set(insertData.map(d => d.file_name).filter(n => n))];
@@ -437,6 +484,11 @@ export const MakeWebhookResults = ({
           description: '所有檔案都已存在於資料庫中',
         });
       }
+      
+      // 關鍵修改：無論是否寫入新資料，都要標記所有處理過的檔案為已同步（包括被跳過的）
+      const allFileNames = [...new Set(pendingInsertData.map(d => d.file_name).filter(Boolean))];
+      markFilesAsSynced(allFileNames);
+      
       setHasSynced(true);
     } catch (error: any) {
       console.error('同步失敗:', error);
