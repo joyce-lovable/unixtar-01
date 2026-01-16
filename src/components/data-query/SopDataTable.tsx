@@ -86,8 +86,7 @@ const SopDataTable = () => {
         .from('sop_ocr_results')
         .select('*', { count: 'exact' })
         .order('group_id', { ascending: true, nullsFirst: false })
-        .order('part_number', { ascending: true })
-        .order('process_code', { ascending: true });
+        .order('operation', { ascending: true });
 
       if (searchTerm) {
         query = query.or(`part_number.ilike.%${searchTerm}%,process_name.ilike.%${searchTerm}%,operation.ilike.%${searchTerm}%,file_name.ilike.%${searchTerm}%`);
