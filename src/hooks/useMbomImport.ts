@@ -22,6 +22,7 @@ export interface BatchMbomFile {
   mainPartNumber?: string;
   customerPartName?: string;
   moldCount?: number;
+  subAssemblyCount?: number;  // 半成品數量
   synced?: boolean;
 }
 
@@ -85,6 +86,7 @@ export function useMbomImport() {
     mainPartNumber: string;
     customerPartName: string;
     moldCount: number;
+    subAssemblyCount: number;
   }> => {
     const content = await file.text();
     const parsed = parseMbomTxt(content);
@@ -101,6 +103,7 @@ export function useMbomImport() {
       mainPartNumber: parsed.mainPartNumber,
       customerPartName: parsed.customerPartName,
       moldCount: moldData.length,
+      subAssemblyCount: parsed.subAssemblies.length,
     };
   };
 
@@ -164,6 +167,7 @@ export function useMbomImport() {
               mainPartNumber: result.mainPartNumber,
               customerPartName: result.customerPartName,
               moldCount: result.moldCount,
+              subAssemblyCount: result.subAssemblyCount,
             } : f
           ),
         }));
@@ -618,6 +622,7 @@ export function useMbomImport() {
   const syncedCount = state.files.filter(f => f.synced).length;
   const totalItems = completedFiles.reduce((sum, f) => sum + (f.parsedData?.length || 0), 0);
   const totalMolds = completedFiles.reduce((sum, f) => sum + (f.moldCount || 0), 0);
+  const totalSubAssemblies = completedFiles.reduce((sum, f) => sum + (f.subAssemblyCount || 0), 0);
 
   // 取得目前選中的檔案資料
   const selectedFile = state.files.find(f => f.id === state.selectedFileId);
@@ -636,6 +641,7 @@ export function useMbomImport() {
     syncedCount,
     totalItems,
     totalMolds,
+    totalSubAssemblies,
     // 重複確認對話框相關
     pendingDuplicates,
     showDuplicateDialog,
