@@ -47,13 +47,14 @@ interface OCRResultFile {
 
 interface BatchOCRResultsProps {
   files: OCRResultFile[];
+  autoOverwrite?: boolean;  // 從外部傳入的自動覆蓋設定
 }
 
 interface FileWithParsedData extends OCRResultFile {
   parsedData: ParsedData;
 }
 
-export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
+export const BatchOCRResults = ({ files, autoOverwrite = false }: BatchOCRResultsProps) => {
   const { toast } = useToast();
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -61,8 +62,7 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
   const [hasSynced, setHasSynced] = useState(false);
   const syncAttemptedRef = useRef(false);
   
-  // 覆蓋功能狀態
-  const [autoOverwrite, setAutoOverwrite] = useState(false);
+  // 覆蓋功能狀態（autoOverwrite 現在從 props 傳入）
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateFileNames, setDuplicateFileNames] = useState<string[]>([]);
   const [pendingInsertData, setPendingInsertData] = useState<{ seq_number: number; file_name: string; part_name: string; mold_number: string; group_id: number | null }[]>([]);
@@ -470,19 +470,11 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
               已同步
             </span>
           )}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="autoOverwrite"
-              checked={autoOverwrite}
-              onCheckedChange={(checked) => setAutoOverwrite(checked === true)}
-            />
-            <label
-              htmlFor="autoOverwrite"
-              className="text-xs text-muted-foreground cursor-pointer select-none"
-            >
-              遇重複自動覆蓋
-            </label>
-          </div>
+          {autoOverwrite && (
+            <span className="text-xs text-blue-500 flex items-center gap-1">
+              自動覆蓋已啟用
+            </span>
+          )}
           <Button
             onClick={handleSyncToSupabase}
             variant="outline"

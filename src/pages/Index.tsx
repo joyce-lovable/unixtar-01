@@ -38,6 +38,10 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('local');
   const [driveFiles, setDriveFiles] = useState<any[]>([]);
   const [functionMode, setFunctionMode] = useState<'mold' | 'sop' | 'orientation' | 'dailycheck' | 'mbom'>('mold');
+  
+  // 自動覆蓋選項狀態
+  const [moldAutoOverwrite, setMoldAutoOverwrite] = useState(false);
+  const [sopAutoOverwrite, setSopAutoOverwrite] = useState(false);
 
   // 根據模式選擇對應的 hook
   const getCurrentOCR = () => {
@@ -369,6 +373,8 @@ const Index = () => {
                     currentProcessingIndex={currentProcessingIndex}
                     mode={functionMode === 'sop' ? 'make' : functionMode === 'orientation' ? 'orientation' : 'ocr'}
                     colorScheme={functionMode === 'sop' ? 'amber' : functionMode === 'orientation' ? 'teal' : 'blue'}
+                    autoOverwrite={functionMode === 'mold' ? moldAutoOverwrite : sopAutoOverwrite}
+                    onAutoOverwriteChange={functionMode === 'mold' ? setMoldAutoOverwrite : functionMode === 'sop' ? setSopAutoOverwrite : undefined}
                   />
                 )}
               </TabsContent>
@@ -429,10 +435,10 @@ const Index = () => {
           {functionMode !== 'mbom' && activeTab === 'local' && completedCount > 0 && (
             <div className="mb-8">
               {functionMode === 'mold' && (
-                <BatchOCRResults files={moldOCR.files} />
+                <BatchOCRResults files={moldOCR.files} autoOverwrite={moldAutoOverwrite} />
               )}
               {functionMode === 'sop' && (
-                <MakeWebhookResults files={sopWebhook.files} />
+                <MakeWebhookResults files={sopWebhook.files} autoOverwrite={sopAutoOverwrite} />
               )}
               {functionMode === 'orientation' && (
                 <OrientationDetectResults files={orientationDetect.files} />

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle, Play, RefreshCw, RotateCcw, Send, FileImage, RotateCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Generic file type that supports multiple status types
@@ -25,6 +26,9 @@ interface BatchFileUploadProps {
   currentProcessingIndex: number;
   mode?: 'ocr' | 'make' | 'orientation';
   colorScheme?: 'blue' | 'amber' | 'teal';
+  // 自動覆蓋選項（僅 ocr/make 模式）
+  autoOverwrite?: boolean;
+  onAutoOverwriteChange?: (value: boolean) => void;
 }
 
 export const BatchFileUpload = ({ 
@@ -37,10 +41,15 @@ export const BatchFileUpload = ({
   isProcessing,
   currentProcessingIndex,
   mode = 'ocr',
-  colorScheme = 'blue'
+  colorScheme = 'blue',
+  autoOverwrite = false,
+  onAutoOverwriteChange,
 }: BatchFileUploadProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [autoRetryCount, setAutoRetryCount] = useState<number>(1);
+  
+  // 是否顯示自動覆蓋選項（僅 ocr 和 make 模式）
+  const showAutoOverwrite = mode === 'ocr' || mode === 'make';
 
   // 色系配置
   const colorClasses = {
@@ -148,21 +157,45 @@ export const BatchFileUpload = ({
 
   return (
     <div className="w-full space-y-4">
-      {/* Auto Retry Setting */}
-      <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
-        <RotateCcw className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">自動重試次數：</span>
-        <Select value={autoRetryCount.toString()} onValueChange={(v) => setAutoRetryCount(parseInt(v))}>
-          <SelectTrigger className="w-20 h-8 bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-background border border-border z-50">
-            {[1, 2, 3, 4, 5].map(n => (
-              <SelectItem key={n} value={n.toString()}>{n} 次</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="text-xs text-muted-foreground">（處理完畢後自動重試失敗項目）</span>
+      {/* Settings Row */}
+      <div className="flex flex-wrap items-center gap-4 p-3 rounded-xl border border-border bg-card">
+        {/* Auto Retry Setting */}
+        <div className="flex items-center gap-2">
+          <RotateCcw className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">自動重試：</span>
+          <Select value={autoRetryCount.toString()} onValueChange={(v) => setAutoRetryCount(parseInt(v))}>
+            <SelectTrigger className="w-20 h-8 bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-background border border-border z-50">
+              {[1, 2, 3, 4, 5].map(n => (
+                <SelectItem key={n} value={n.toString()}>{n} 次</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Auto Overwrite Setting - 僅 ocr/make 模式顯示 */}
+        {showAutoOverwrite && onAutoOverwriteChange && (
+          <div className="flex items-center gap-2">
+            <div className="w-px h-4 bg-border" />
+            <Checkbox
+              id="autoOverwriteUpload"
+              checked={autoOverwrite}
+              onCheckedChange={(checked) => onAutoOverwriteChange(checked === true)}
+              className={cn(
+                colorScheme === 'blue' && "data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600",
+                colorScheme === 'amber' && "data-[state=checked]:bg-amber-600 data-[state=checked]:border-amber-600"
+              )}
+            />
+            <label
+              htmlFor="autoOverwriteUpload"
+              className="text-sm text-muted-foreground cursor-pointer select-none"
+            >
+              遇重複自動覆蓋
+            </label>
+          </div>
+        )}
       </div>
 
       {/* Upload Area */}
