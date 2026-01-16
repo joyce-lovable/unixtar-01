@@ -58,7 +58,35 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
     process_code: number;
     process_name: string;
     file_name: string;
+    group_id: number;
   }[]>([]);
+
+  // 取得或建立群組 ID
+  const getOrCreateGroupId = async (partNumber: string): Promise<number> => {
+    // 先查詢是否已存在該料號的群組
+    const { data: existingGroup } = await supabase
+      .from('sop_groups')
+      .select('group_id')
+      .eq('part_number', partNumber)
+      .maybeSingle();
+
+    if (existingGroup) {
+      return existingGroup.group_id;
+    }
+
+    // 不存在則新增群組
+    const { data: newGroup, error } = await supabase
+      .from('sop_groups')
+      .insert({ part_number: partNumber })
+      .select('group_id')
+      .single();
+
+    if (error || !newGroup) {
+      throw new Error(`無法建立群組: ${error?.message}`);
+    }
+
+    return newGroup.group_id;
+  };
 
   const toggleExpand = (fileId: string) => {
     setExpandedFiles(prev => {
@@ -203,8 +231,27 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
     });
   };
 
-  // 準備要插入的資料
-  const prepareInsertData = () => {
+  // 準備要插入的資料（非同步版本，包含 group_id）
+  const prepareInsertData = async (): Promise<{
+    part_number: string;
+    operation: string;
+    sequence: string;
+    process_code: number;
+    process_name: string;
+    file_name: string;
+    group_id: number;
+  }[]> => {
+    // 1. 收集所有不重複的料號
+    const uniquePartNumbers = [...new Set(allResultData.map(r => r.partNumber))];
+    
+    // 2. 取得或建立所有料號對應的 group_id
+    const partNumberToGroupId: Map<string, number> = new Map();
+    for (const partNumber of uniquePartNumbers) {
+      const groupId = await getOrCreateGroupId(partNumber);
+      partNumberToGroupId.set(partNumber, groupId);
+    }
+
+    // 3. 建立完整的插入資料
     return allResultData.map((row, index) => {
       // 找到對應的檔案名稱
       let fileName = '';
@@ -232,6 +279,7 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
         process_code: row.processCode,
         process_name: row.processName,
         file_name: fileName,
+        group_id: partNumberToGroupId.get(row.partNumber)!,
       };
     });
   };
@@ -271,7 +319,7 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
     setIsSyncing(true);
 
     try {
-      const insertData = prepareInsertData();
+      const insertData = await prepareInsertData();
       
       // 檢查資料庫中是否已存在相同檔案名稱
       const fileNames = [...new Set(insertData.map(d => d.file_name).filter(n => n))];
@@ -292,6 +340,13 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
             .from('sop_ocr_results')
             .delete()
             .in('file_name', duplicates);
+          
+          // 重置受影響群組的 downloaded 狀態
+          const affectedPartNumbers = [...new Set(insertData.map(d => d.part_number))];
+          await supabase
+            .from('sop_groups')
+            .update({ downloaded: false })
+            .in('part_number', affectedPartNumbers);
           
           await executeInsert(insertData, duplicates.length);
         } else {
@@ -329,6 +384,13 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
         .from('sop_ocr_results')
         .delete()
         .in('file_name', duplicateFileNames);
+
+      // 重置受影響群組的 downloaded 狀態
+      const affectedPartNumbers = [...new Set(pendingInsertData.map(d => d.part_number))];
+      await supabase
+        .from('sop_groups')
+        .update({ downloaded: false })
+        .in('part_number', affectedPartNumbers);
 
       // 寫入全部資料
       await executeInsert(pendingInsertData, duplicateFileNames.length);
