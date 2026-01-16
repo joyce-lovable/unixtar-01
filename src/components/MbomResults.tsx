@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion';
-import { Download, Database, FileSpreadsheet, Package, Wrench, Box } from 'lucide-react';
+import { Download, Database, FileSpreadsheet, Package, Wrench, Box, Files, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -11,27 +12,43 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { MbomItem } from '@/lib/mbomParser';
+import { BatchMbomFile } from '@/hooks/useMbomImport';
 
 interface MbomResultsProps {
-  data: MbomItem[];
-  fileName: string | null;
-  mainPartNumber: string | null;
-  customerPartName: string | null;
-  moldCount: number;
-  onExportExcel: () => void;
+  files: BatchMbomFile[];
+  selectedFile: BatchMbomFile | undefined;
+  totalItems: number;
+  totalMolds: number;
+  completedCount: number;
+  onSelectFile: (fileId: string) => void;
+  onExportSingle: (fileId: string) => void;
+  onExportAllMerged: () => void;
+  onExportAllSeparate: () => void;
 }
 
 export function MbomResults({
-  data,
-  fileName,
-  mainPartNumber,
-  customerPartName,
-  moldCount,
-  onExportExcel,
+  files,
+  selectedFile,
+  totalItems,
+  totalMolds,
+  completedCount,
+  onSelectFile,
+  onExportSingle,
+  onExportAllMerged,
+  onExportAllSeparate,
 }: MbomResultsProps) {
-  if (!data || data.length === 0) return null;
+  const completedFiles = files.filter(f => f.status === 'completed' && f.parsedData);
+  
+  if (completedFiles.length === 0) return null;
 
+  const data = selectedFile?.parsedData || [];
   const txtCount = data.filter(d => d.source === 'txt').length;
   const moldDataCount = data.filter(d => d.source === 'mold').length;
   const subCount = data.filter(d => d.source === 'sub').length;
@@ -42,128 +59,196 @@ export function MbomResults({
       animate={{ opacity: 1, y: 0 }}
       className="space-y-4"
     >
-      {/* 摘要資訊 */}
+      {/* 總覽資訊 */}
       <div className="p-4 rounded-xl bg-card border border-border">
-        <div className="flex flex-wrap items-center gap-4 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
-            <span className="font-semibold text-foreground">MBOM 解析結果</span>
+            <span className="font-semibold text-foreground">MBOM 批次解析結果</span>
           </div>
-          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
-            {data.length} 筆資料
-          </Badge>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <div className="flex items-center gap-2 text-sm">
-            <Package className="w-4 h-4 text-blue-500" />
-            <span className="text-muted-foreground">成品料號:</span>
-            <span className="font-medium text-foreground">{mainPartNumber}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <Box className="w-4 h-4 text-amber-500" />
-            <span className="text-muted-foreground">品名:</span>
-            <span className="font-medium text-foreground">{customerPartName}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <Wrench className="w-4 h-4 text-teal-500" />
-            <span className="text-muted-foreground">模具數量:</span>
-            <span className="font-medium text-foreground">{moldCount}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm">
-            <Database className="w-4 h-4 text-violet-500" />
-            <span className="text-muted-foreground">資料來源:</span>
-            <span className="font-medium text-foreground">
-              TXT({txtCount}) + 模具({moldDataCount}) + 半成品({subCount})
-            </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
+              <Files className="w-3 h-3 mr-1" />
+              {completedCount} 個檔案
+            </Badge>
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30">
+              <Layers className="w-3 h-3 mr-1" />
+              {totalItems} 筆資料
+            </Badge>
+            <Badge variant="outline" className="bg-teal-500/10 text-teal-600 border-teal-500/30">
+              <Wrench className="w-3 h-3 mr-1" />
+              {totalMolds} 個模具
+            </Badge>
           </div>
         </div>
 
         {/* 匯出按鈕 */}
-        <Button
-          onClick={onExportExcel}
-          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          下載 Excel 檔案
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {completedFiles.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  <Download className="w-4 h-4 mr-2" />
+                  下載全部 Excel
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={onExportAllMerged}>
+                  <Layers className="w-4 h-4 mr-2" />
+                  合併為一個工作表
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onExportAllSeparate}>
+                  <Files className="w-4 h-4 mr-2" />
+                  每檔一個工作表
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {selectedFile && (
+            <Button
+              variant="outline"
+              onClick={() => onExportSingle(selectedFile.id)}
+              className="border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              下載當前檔案
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* 資料表格 */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <ScrollArea className="w-full">
-          <div className="min-w-[1400px]">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="w-[120px] font-semibold">客戶料號品名</TableHead>
-                  <TableHead className="w-[140px] font-semibold">主件料號 (PK)</TableHead>
-                  <TableHead className="w-[80px] font-semibold text-center">生產工序</TableHead>
-                  <TableHead className="w-[80px] font-semibold text-center">CAD項次</TableHead>
-                  <TableHead className="w-[160px] font-semibold">元件料號 (PK)</TableHead>
-                  <TableHead className="w-[80px] font-semibold text-center">用料類別</TableHead>
-                  <TableHead className="w-[100px] font-semibold text-right">組成用量</TableHead>
-                  <TableHead className="w-[80px] font-semibold text-center">單位</TableHead>
-                  <TableHead className="w-[100px] font-semibold text-center">代用品</TableHead>
-                  <TableHead className="w-[80px] font-semibold text-center">用料素質</TableHead>
-                  <TableHead className="min-w-[200px] font-semibold">備註說明</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.map((item, index) => (
-                  <TableRow 
-                    key={index}
-                    className={
-                      item.source === 'mold' 
-                        ? 'bg-teal-500/5' 
-                        : item.source === 'sub'
-                        ? 'bg-violet-500/5'
-                        : ''
-                    }
+      {/* 檔案選擇器 */}
+      {completedFiles.length > 1 && (
+        <div className="rounded-xl border border-border bg-card p-2">
+          <ScrollArea className="w-full">
+            <Tabs value={selectedFile?.id || ''} onValueChange={onSelectFile}>
+              <TabsList className="inline-flex h-auto gap-1 bg-transparent p-0">
+                {completedFiles.map((file) => (
+                  <TabsTrigger
+                    key={file.id}
+                    value={file.id}
+                    className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white px-4 py-2 rounded-lg"
                   >
-                    <TableCell className="font-medium">{item.customerPartName}</TableCell>
-                    <TableCell className="font-mono text-sm">{item.mainPartNumber}</TableCell>
-                    <TableCell className="text-center">{item.productionProcess}</TableCell>
-                    <TableCell className="text-center font-medium">{item.cadSequence}</TableCell>
-                    <TableCell className="font-mono text-sm">{item.componentPartNumber}</TableCell>
-                    <TableCell className="text-center">
-                      <Badge 
-                        variant="outline" 
-                        className={
-                          item.materialCategory === '4' 
-                            ? 'bg-teal-500/10 text-teal-600 border-teal-500/30' 
-                            : 'bg-blue-500/10 text-blue-600 border-blue-500/30'
-                        }
-                      >
-                        {item.materialCategory}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">{item.quantity}</TableCell>
-                    <TableCell className="text-center">{item.unit}</TableCell>
-                    <TableCell className="text-center">
-                      <Badge 
-                        variant="outline"
-                        className={
-                          item.hasSubstitute === 'Y'
-                            ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
-                            : 'bg-muted text-muted-foreground'
-                        }
-                      >
-                        {item.hasSubstitute}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center">{item.materialQuality}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground truncate max-w-[300px]">
-                      {item.remark}
-                    </TableCell>
-                  </TableRow>
+                    <span className="truncate max-w-[150px]">{file.mainPartNumber || file.name}</span>
+                    <Badge variant="secondary" className="ml-2 bg-white/20 text-inherit">
+                      {file.parsedData?.length || 0}
+                    </Badge>
+                  </TabsTrigger>
                 ))}
-              </TableBody>
-            </Table>
+              </TabsList>
+            </Tabs>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
+      )}
+
+      {/* 選中檔案的詳細資訊 */}
+      {selectedFile && (
+        <div className="p-4 rounded-xl bg-muted/30 border border-border">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              <Package className="w-4 h-4 text-blue-500" />
+              <span className="text-muted-foreground">成品料號:</span>
+              <span className="font-medium text-foreground">{selectedFile.mainPartNumber}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Box className="w-4 h-4 text-amber-500" />
+              <span className="text-muted-foreground">品名:</span>
+              <span className="font-medium text-foreground">{selectedFile.customerPartName}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Wrench className="w-4 h-4 text-teal-500" />
+              <span className="text-muted-foreground">模具數量:</span>
+              <span className="font-medium text-foreground">{selectedFile.moldCount}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Database className="w-4 h-4 text-violet-500" />
+              <span className="text-muted-foreground">資料來源:</span>
+              <span className="font-medium text-foreground">
+                TXT({txtCount}) + 模具({moldDataCount}) + 半成品({subCount})
+              </span>
+            </div>
           </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      </div>
+        </div>
+      )}
+
+      {/* 資料表格 */}
+      {data.length > 0 && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <ScrollArea className="w-full">
+            <div className="min-w-[1400px]">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="w-[120px] font-semibold">客戶料號品名</TableHead>
+                    <TableHead className="w-[140px] font-semibold">主件料號 (PK)</TableHead>
+                    <TableHead className="w-[80px] font-semibold text-center">生產工序</TableHead>
+                    <TableHead className="w-[80px] font-semibold text-center">CAD項次</TableHead>
+                    <TableHead className="w-[160px] font-semibold">元件料號 (PK)</TableHead>
+                    <TableHead className="w-[80px] font-semibold text-center">用料類別</TableHead>
+                    <TableHead className="w-[100px] font-semibold text-right">組成用量</TableHead>
+                    <TableHead className="w-[80px] font-semibold text-center">單位</TableHead>
+                    <TableHead className="w-[100px] font-semibold text-center">代用品</TableHead>
+                    <TableHead className="w-[80px] font-semibold text-center">用料素質</TableHead>
+                    <TableHead className="min-w-[200px] font-semibold">備註說明</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((item, index) => (
+                    <TableRow 
+                      key={index}
+                      className={
+                        item.source === 'mold' 
+                          ? 'bg-teal-500/5' 
+                          : item.source === 'sub'
+                          ? 'bg-violet-500/5'
+                          : ''
+                      }
+                    >
+                      <TableCell className="font-medium">{item.customerPartName}</TableCell>
+                      <TableCell className="font-mono text-sm">{item.mainPartNumber}</TableCell>
+                      <TableCell className="text-center">{item.productionProcess}</TableCell>
+                      <TableCell className="text-center font-medium">{item.cadSequence}</TableCell>
+                      <TableCell className="font-mono text-sm">{item.componentPartNumber}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge 
+                          variant="outline" 
+                          className={
+                            item.materialCategory === '4' 
+                              ? 'bg-teal-500/10 text-teal-600 border-teal-500/30' 
+                              : 'bg-blue-500/10 text-blue-600 border-blue-500/30'
+                          }
+                        >
+                          {item.materialCategory}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono">{item.quantity}</TableCell>
+                      <TableCell className="text-center">{item.unit}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge 
+                          variant="outline"
+                          className={
+                            item.hasSubstitute === 'Y'
+                              ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+                              : 'bg-muted text-muted-foreground'
+                          }
+                        >
+                          {item.hasSubstitute}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">{item.materialQuality}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground truncate max-w-[300px]">
+                        {item.remark}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
+      )}
 
       {/* 圖例說明 */}
       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">

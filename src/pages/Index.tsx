@@ -100,7 +100,7 @@ const Index = () => {
     },
   ];
 
-  const hasResults = completedCount > 0 || driveFiles.some(f => f.status === 'completed') || (mbomImport.parsedData && mbomImport.parsedData.length > 0);
+  const hasResults = completedCount > 0 || driveFiles.some(f => f.status === 'completed') || mbomImport.completedCount > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -254,11 +254,13 @@ const Index = () => {
               /* MBOM 模式專用介面 */
               <div className="space-y-6">
                 <MbomUpload
-                  fileName={mbomImport.fileName}
+                  files={mbomImport.files}
                   isProcessing={mbomImport.isProcessing}
-                  error={mbomImport.error}
-                  onFileSelect={mbomImport.processFile}
-                  onClear={mbomImport.clearData}
+                  currentProcessingIndex={mbomImport.currentProcessingIndex}
+                  onFilesSelect={mbomImport.addFiles}
+                  onProcess={mbomImport.processAllFiles}
+                  onRemoveFile={mbomImport.removeFile}
+                  onClear={mbomImport.clearAll}
                 />
               </div>
             ) : (
@@ -388,15 +390,18 @@ const Index = () => {
           </motion.div>
 
           {/* Results - MBOM */}
-          {functionMode === 'mbom' && mbomImport.parsedData && mbomImport.parsedData.length > 0 && (
+          {functionMode === 'mbom' && mbomImport.completedCount > 0 && (
             <div className="mb-8">
               <MbomResults
-                data={mbomImport.parsedData}
-                fileName={mbomImport.fileName}
-                mainPartNumber={mbomImport.mainPartNumber}
-                customerPartName={mbomImport.customerPartName}
-                moldCount={mbomImport.moldCount}
-                onExportExcel={mbomImport.exportToExcel}
+                files={mbomImport.files}
+                selectedFile={mbomImport.selectedFile}
+                totalItems={mbomImport.totalItems}
+                totalMolds={mbomImport.totalMolds}
+                completedCount={mbomImport.completedCount}
+                onSelectFile={mbomImport.selectFile}
+                onExportSingle={mbomImport.exportSingleExcel}
+                onExportAllMerged={mbomImport.exportAllMerged}
+                onExportAllSeparate={mbomImport.exportAllSeparate}
               />
             </div>
           )}
