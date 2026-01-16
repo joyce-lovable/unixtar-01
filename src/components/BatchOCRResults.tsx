@@ -2,10 +2,21 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Download, FileText, CheckCircle, ChevronDown, ChevronUp, Copy, Check, Clock, RefreshCw, RotateCw, Image, Database, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { parseMoldEntries, type ParsedData } from '@/lib/moldParser';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface OCRTiming {
   orientationDuration?: number;
@@ -49,6 +60,12 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
   const syncAttemptedRef = useRef(false);
+  
+  // 覆蓋功能狀態
+  const [autoOverwrite, setAutoOverwrite] = useState(false);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateFileNames, setDuplicateFileNames] = useState<string[]>([]);
+  const [pendingInsertData, setPendingInsertData] = useState<{ seq_number: number; file_name: string; part_name: string; mold_number: string }[]>([]);
 
   const completedFiles = useMemo(() => {
     return files
@@ -144,6 +161,59 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
     });
   };
 
+  // 準備要插入的資料
+  const prepareInsertData = () => {
+    const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string }[] = [];
+    let seqNumber = 1;
+
+    completedFiles.forEach(file => {
+      const allMolds = file.parsedData.molds.flatMap(e => e.expanded);
+      const currentSeq = seqNumber;
+      seqNumber++;
+
+      if (allMolds.length > 0) {
+        allMolds.forEach(mold => {
+          insertData.push({
+            seq_number: currentSeq,
+            file_name: file.name,
+            part_name: file.parsedData.partName || '',
+            mold_number: mold,
+          });
+        });
+      } else {
+        insertData.push({
+          seq_number: currentSeq,
+          file_name: file.name,
+          part_name: file.parsedData.partName || '',
+          mold_number: '',
+        });
+      }
+    });
+
+    return insertData;
+  };
+
+  // 執行插入操作
+  const executeInsert = async (data: typeof pendingInsertData, overwrittenCount: number = 0) => {
+    const { error } = await supabase
+      .from('mold_ocr_results')
+      .insert(data);
+
+    if (error) {
+      throw error;
+    }
+
+    const message = overwrittenCount > 0
+      ? `已將 ${data.length} 筆資料寫入資料庫（覆蓋 ${overwrittenCount} 個檔案）`
+      : `已將 ${data.length} 筆資料寫入資料庫`;
+
+    toast({
+      title: '同步成功',
+      description: message,
+    });
+    setHasSynced(true);
+  };
+
   // 同步到 Supabase 資料庫
   const handleSyncToSupabase = async () => {
     if (completedFiles.length === 0) {
@@ -168,71 +238,93 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
         .in('file_name', fileNames);
 
       const existingFileNames = new Set(existingFiles?.map(f => f.file_name) || []);
+      const duplicates = fileNames.filter(name => existingFileNames.has(name));
+      const insertData = prepareInsertData();
 
-      // 找出重複的檔案並逐一顯示提示
-      const duplicateFiles = fileNames.filter(name => existingFileNames.has(name));
-      duplicateFiles.forEach(name => {
-        toast({
-          title: '檔案已存在',
-          description: `${name} 已上傳過資料庫，跳過此檔案`,
-        });
+      // 如果有重複檔案
+      if (duplicates.length > 0) {
+        if (autoOverwrite) {
+          // 自動覆蓋模式：直接刪除舊資料
+          await supabase
+            .from('mold_ocr_results')
+            .delete()
+            .in('file_name', duplicates);
+          
+          await executeInsert(insertData, duplicates.length);
+        } else {
+          // 詢問模式：顯示對話框
+          setDuplicateFileNames(duplicates);
+          setPendingInsertData(insertData);
+          setShowDuplicateDialog(true);
+          setIsSyncing(false);
+          return;
+        }
+      } else {
+        // 無重複，直接寫入
+        await executeInsert(insertData);
+      }
+    } catch (error: any) {
+      console.error('同步到 Supabase 失敗:', error);
+      toast({
+        title: '同步失敗',
+        description: error.message || '寫入資料庫時發生錯誤',
+        variant: 'destructive',
       });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
-      // 過濾掉重複檔案
-      const newCompletedFiles = completedFiles.filter(f => !existingFileNames.has(f.name));
+  // 使用者選擇「覆蓋」
+  const handleOverwrite = async () => {
+    setShowDuplicateDialog(false);
+    setIsSyncing(true);
 
-      // 如果沒有新檔案需要寫入
-      if (newCompletedFiles.length === 0) {
+    try {
+      // 刪除舊資料
+      await supabase
+        .from('mold_ocr_results')
+        .delete()
+        .in('file_name', duplicateFileNames);
+
+      // 寫入全部資料
+      await executeInsert(pendingInsertData, duplicateFileNames.length);
+    } catch (error: any) {
+      console.error('覆蓋同步失敗:', error);
+      toast({
+        title: '同步失敗',
+        description: error.message || '寫入資料庫時發生錯誤',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // 使用者選擇「跳過」
+  const handleSkip = async () => {
+    setShowDuplicateDialog(false);
+    setIsSyncing(true);
+
+    try {
+      const existingSet = new Set(duplicateFileNames);
+      const newData = pendingInsertData.filter(row => !existingSet.has(row.file_name));
+      
+      if (newData.length > 0) {
+        await executeInsert(newData);
+        toast({
+          title: '同步成功',
+          description: `已寫入 ${newData.length} 筆資料，跳過 ${duplicateFileNames.length} 個重複檔案`,
+        });
+      } else {
         toast({
           title: '無新資料需同步',
           description: '所有檔案都已存在於資料庫中',
         });
-        setHasSynced(true);
-        return;
       }
-
-      const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string }[] = [];
-      let seqNumber = 1;
-
-      newCompletedFiles.forEach(file => {
-        const allMolds = file.parsedData.molds.flatMap(e => e.expanded);
-        const currentSeq = seqNumber;
-        seqNumber++;
-
-        if (allMolds.length > 0) {
-          allMolds.forEach(mold => {
-            insertData.push({
-              seq_number: currentSeq,
-              file_name: file.name,
-              part_name: file.parsedData.partName || '',
-              mold_number: mold,
-            });
-          });
-        } else {
-          insertData.push({
-            seq_number: currentSeq,
-            file_name: file.name,
-            part_name: file.parsedData.partName || '',
-            mold_number: '',
-          });
-        }
-      });
-
-      const { error } = await supabase
-        .from('mold_ocr_results')
-        .insert(insertData);
-
-      if (error) {
-        throw error;
-      }
-
-      toast({
-        title: '同步成功',
-        description: `已將 ${insertData.length} 筆資料寫入資料庫`,
-      });
       setHasSynced(true);
     } catch (error: any) {
-      console.error('同步到 Supabase 失敗:', error);
+      console.error('同步失敗:', error);
       toast({
         title: '同步失敗',
         description: error.message || '寫入資料庫時發生錯誤',
@@ -330,13 +422,26 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {hasSynced && (
             <span className="text-xs text-green-500 flex items-center gap-1">
               <CheckCircle className="w-3 h-3" />
               已同步
             </span>
           )}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="autoOverwrite"
+              checked={autoOverwrite}
+              onCheckedChange={(checked) => setAutoOverwrite(checked === true)}
+            />
+            <label
+              htmlFor="autoOverwrite"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              遇重複自動覆蓋
+            </label>
+          </div>
           <Button
             onClick={handleSyncToSupabase}
             variant="outline"
@@ -523,6 +628,30 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
           );
         })}
       </div>
+
+      {/* 重複檔案對話框 */}
+      <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>偵測到重複檔案</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-3">以下檔案已存在於資料庫中：</p>
+                <ul className="list-disc list-inside space-y-1 max-h-40 overflow-y-auto bg-muted/50 rounded-lg p-3">
+                  {duplicateFileNames.map((name, idx) => (
+                    <li key={idx} className="text-sm font-mono truncate">{name}</li>
+                  ))}
+                </ul>
+                <p className="mt-3">請選擇處理方式：</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleSkip}>跳過這些檔案</AlertDialogCancel>
+            <AlertDialogAction onClick={handleOverwrite}>覆蓋舊資料</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 };
