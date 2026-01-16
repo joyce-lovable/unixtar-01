@@ -65,7 +65,7 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
   const [autoOverwrite, setAutoOverwrite] = useState(false);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateFileNames, setDuplicateFileNames] = useState<string[]>([]);
-  const [pendingInsertData, setPendingInsertData] = useState<{ seq_number: number; file_name: string; part_name: string; mold_number: string }[]>([]);
+  const [pendingInsertData, setPendingInsertData] = useState<{ seq_number: number; file_name: string; part_name: string; mold_number: string; group_id: number | null }[]>([]);
 
   const completedFiles = useMemo(() => {
     return files
@@ -161,14 +161,53 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
     });
   };
 
-  // 準備要插入的資料
-  const prepareInsertData = () => {
-    const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string }[] = [];
+  // 取得或建立群組 ID
+  const getOrCreateGroupId = async (partName: string): Promise<number | null> => {
+    if (!partName) return null;
+    
+    // 先查詢是否已存在
+    const { data: existing } = await supabase
+      .from('mold_groups')
+      .select('group_id')
+      .eq('part_name', partName)
+      .maybeSingle();
+    
+    if (existing) return existing.group_id;
+    
+    // 不存在則建立新群組
+    const { data: newGroup, error } = await supabase
+      .from('mold_groups')
+      .insert({ part_name: partName })
+      .select('group_id')
+      .single();
+    
+    if (error) {
+      console.error('Error creating mold group:', error);
+      return null;
+    }
+    
+    return newGroup.group_id;
+  };
+
+  // 準備要插入的資料（含 group_id）
+  const prepareInsertData = async () => {
+    const insertData: { seq_number: number; file_name: string; part_name: string; mold_number: string; group_id: number | null }[] = [];
     let seqNumber = 1;
+
+    // 收集所有不重複的 part_name 並取得 group_id
+    const partNames = [...new Set(completedFiles.map(f => f.parsedData.partName || '').filter(Boolean))];
+    const groupIdMap = new Map<string, number | null>();
+    
+    for (const partName of partNames) {
+      const groupId = await getOrCreateGroupId(partName);
+      groupIdMap.set(partName, groupId);
+    }
 
     completedFiles.forEach(file => {
       const allMolds = file.parsedData.molds.flatMap(e => e.expanded);
       const currentSeq = seqNumber;
+      const partName = file.parsedData.partName || '';
+      const groupId = groupIdMap.get(partName) || null;
       seqNumber++;
 
       if (allMolds.length > 0) {
@@ -176,16 +215,18 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
           insertData.push({
             seq_number: currentSeq,
             file_name: file.name,
-            part_name: file.parsedData.partName || '',
+            part_name: partName,
             mold_number: mold,
+            group_id: groupId,
           });
         });
       } else {
         insertData.push({
           seq_number: currentSeq,
           file_name: file.name,
-          part_name: file.parsedData.partName || '',
+          part_name: partName,
           mold_number: '',
+          group_id: groupId,
         });
       }
     });
@@ -239,7 +280,7 @@ export const BatchOCRResults = ({ files }: BatchOCRResultsProps) => {
 
       const existingFileNames = new Set(existingFiles?.map(f => f.file_name) || []);
       const duplicates = fileNames.filter(name => existingFileNames.has(name));
-      const insertData = prepareInsertData();
+      const insertData = await prepareInsertData();
 
       // 如果有重複檔案
       if (duplicates.length > 0) {

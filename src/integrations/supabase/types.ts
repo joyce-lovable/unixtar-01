@@ -103,10 +103,35 @@ export type Database = {
           },
         ]
       }
+      mold_groups: {
+        Row: {
+          created_at: string
+          downloaded: boolean
+          group_id: number
+          id: string
+          part_name: string
+        }
+        Insert: {
+          created_at?: string
+          downloaded?: boolean
+          group_id?: number
+          id?: string
+          part_name: string
+        }
+        Update: {
+          created_at?: string
+          downloaded?: boolean
+          group_id?: number
+          id?: string
+          part_name?: string
+        }
+        Relationships: []
+      }
       mold_ocr_results: {
         Row: {
           created_at: string
           file_name: string
+          group_id: number | null
           id: string
           mold_number: string
           part_name: string
@@ -115,6 +140,7 @@ export type Database = {
         Insert: {
           created_at?: string
           file_name: string
+          group_id?: number | null
           id?: string
           mold_number: string
           part_name: string
@@ -123,10 +149,43 @@ export type Database = {
         Update: {
           created_at?: string
           file_name?: string
+          group_id?: number | null
           id?: string
           mold_number?: string
           part_name?: string
           seq_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mold_ocr_results_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "mold_groups"
+            referencedColumns: ["group_id"]
+          },
+        ]
+      }
+      sop_groups: {
+        Row: {
+          created_at: string
+          downloaded: boolean
+          group_id: number
+          id: string
+          part_number: string
+        }
+        Insert: {
+          created_at?: string
+          downloaded?: boolean
+          group_id?: number
+          id?: string
+          part_number: string
+        }
+        Update: {
+          created_at?: string
+          downloaded?: boolean
+          group_id?: number
+          id?: string
+          part_number?: string
         }
         Relationships: []
       }
@@ -134,6 +193,7 @@ export type Database = {
         Row: {
           created_at: string
           file_name: string | null
+          group_id: number | null
           id: string
           operation: string
           part_number: string
@@ -144,6 +204,7 @@ export type Database = {
         Insert: {
           created_at?: string
           file_name?: string | null
+          group_id?: number | null
           id?: string
           operation: string
           part_number: string
@@ -154,6 +215,7 @@ export type Database = {
         Update: {
           created_at?: string
           file_name?: string | null
+          group_id?: number | null
           id?: string
           operation?: string
           part_number?: string
@@ -161,7 +223,15 @@ export type Database = {
           process_name?: string
           sequence?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "sop_ocr_results_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "sop_groups"
+            referencedColumns: ["group_id"]
+          },
+        ]
       }
     }
     Views: {
