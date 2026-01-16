@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Scan, Zap, Shield, Globe, HardDrive, Cloud, FileText, ListChecks, RotateCw, ClipboardCheck } from 'lucide-react';
+import { Scan, Zap, Shield, Globe, HardDrive, Cloud, FileText, ListChecks, RotateCw, ClipboardCheck, FileSpreadsheet } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { BatchFileUpload } from '@/components/BatchFileUpload';
@@ -10,11 +10,13 @@ import { MakeWebhookResults } from '@/components/MakeWebhookResults';
 import { OrientationDetectResults } from '@/components/OrientationDetectResults';
 import { DailyCheckUpload } from '@/components/DailyCheckUpload';
 import { DailyCheckResults } from '@/components/DailyCheckResults';
+import { MbomUpload } from '@/components/MbomUpload';
+import { MbomResults } from '@/components/MbomResults';
 import { useBatchOCR } from '@/hooks/useBatchOCR';
 import { useMakeWebhook } from '@/hooks/useMakeWebhook';
 import { useOrientationDetect } from '@/hooks/useOrientationDetect';
 import { useDailyCheck } from '@/hooks/useDailyCheck';
-
+import { useMbomImport } from '@/hooks/useMbomImport';
 const Index = () => {
   // 工程圖模式 hook
   const moldOCR = useBatchOCR();
@@ -28,9 +30,12 @@ const Index = () => {
   // 每日檢核模式 hook
   const dailyCheck = useDailyCheck();
 
+  // MBOM 導入 hook
+  const mbomImport = useMbomImport();
+
   const [activeTab, setActiveTab] = useState('local');
   const [driveFiles, setDriveFiles] = useState<any[]>([]);
-  const [functionMode, setFunctionMode] = useState<'mold' | 'sop' | 'orientation' | 'dailycheck'>('mold');
+  const [functionMode, setFunctionMode] = useState<'mold' | 'sop' | 'orientation' | 'dailycheck' | 'mbom'>('mold');
 
   // 根據模式選擇對應的 hook
   const getCurrentOCR = () => {
@@ -39,21 +44,22 @@ const Index = () => {
       case 'sop': return sopWebhook;
       case 'orientation': return orientationDetect;
       case 'dailycheck': return dailyCheck;
+      case 'mbom': return null; // MBOM 有自己的處理邏輯
       default: return moldOCR;
     }
   };
   const currentOCR = getCurrentOCR();
   const { 
-    files, 
-    addFiles, 
-    processAllFiles, 
-    retryFile,
-    removeFile, 
-    clearAll, 
-    isProcessing, 
-    completedCount 
-  } = currentOCR;
-  const currentProcessingIndex = 'currentProcessingIndex' in currentOCR ? currentOCR.currentProcessingIndex : -1;
+    files = [], 
+    addFiles = () => {}, 
+    processAllFiles = () => {}, 
+    retryFile = () => {},
+    removeFile = () => {}, 
+    clearAll = () => {}, 
+    isProcessing = false, 
+    completedCount = 0 
+  } = currentOCR || {};
+  const currentProcessingIndex = currentOCR && 'currentProcessingIndex' in currentOCR ? currentOCR.currentProcessingIndex : -1;
 
   // 頁面載入時自動關閉 Lovable badge
   useEffect(() => {
@@ -94,7 +100,7 @@ const Index = () => {
     },
   ];
 
-  const hasResults = completedCount > 0 || driveFiles.some(f => f.status === 'completed');
+  const hasResults = completedCount > 0 || driveFiles.some(f => f.status === 'completed') || (mbomImport.parsedData && mbomImport.parsedData.length > 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -199,7 +205,7 @@ const Index = () => {
                 </button>
               </div>
 
-              {/* 第二排：每日檢核資料系統 - 對齊第一排 */}
+              {/* 第二排：每日檢核資料系統 + 系統MBOM導入 */}
               <div className="flex gap-4 justify-start flex-wrap">
                 {/* 每日檢核模式 - 紫色系 */}
                 <button
@@ -218,6 +224,24 @@ const Index = () => {
                     <span className="absolute -top-1 -right-1 w-3 h-3 bg-violet-300 rounded-full animate-pulse" />
                   )}
                 </button>
+
+                {/* MBOM 導入模式 - 綠色系 */}
+                <button
+                  onClick={() => setFunctionMode('mbom')}
+                  className={`
+                    relative flex items-center gap-3 px-6 py-4 rounded-xl font-semibold text-lg
+                    transition-all duration-300 border-2
+                    ${functionMode === 'mbom' 
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-600/30 scale-105' 
+                      : 'bg-card text-muted-foreground border-border hover:border-emerald-400 hover:text-emerald-600'}
+                  `}
+                >
+                  <FileSpreadsheet className={`w-5 h-5 ${functionMode === 'mbom' ? 'text-white' : 'text-emerald-500'}`} />
+                  <span>系統MBOM導入</span>
+                  {functionMode === 'mbom' && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-300 rounded-full animate-pulse" />
+                  )}
+                </button>
               </div>
 
               <p className="text-center text-sm text-muted-foreground mt-3">
@@ -225,7 +249,19 @@ const Index = () => {
               </p>
             </div>
 
-            {/* Upload Source Tabs - 兩種模式共用相同介面 */}
+            {/* Upload Source Tabs - 非 MBOM 模式使用 */}
+            {functionMode === 'mbom' ? (
+              /* MBOM 模式專用介面 */
+              <div className="space-y-6">
+                <MbomUpload
+                  fileName={mbomImport.fileName}
+                  isProcessing={mbomImport.isProcessing}
+                  error={mbomImport.error}
+                  onFileSelect={mbomImport.processFile}
+                  onClear={mbomImport.clearData}
+                />
+              </div>
+            ) : (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className={cn(
                 "grid w-full mb-6",
@@ -348,10 +384,25 @@ const Index = () => {
                 </TabsContent>
               )}
             </Tabs>
+            )}
           </motion.div>
 
+          {/* Results - MBOM */}
+          {functionMode === 'mbom' && mbomImport.parsedData && mbomImport.parsedData.length > 0 && (
+            <div className="mb-8">
+              <MbomResults
+                data={mbomImport.parsedData}
+                fileName={mbomImport.fileName}
+                mainPartNumber={mbomImport.mainPartNumber}
+                customerPartName={mbomImport.customerPartName}
+                moldCount={mbomImport.moldCount}
+                onExportExcel={mbomImport.exportToExcel}
+              />
+            </div>
+          )}
+
           {/* Results - Local Upload */}
-          {activeTab === 'local' && completedCount > 0 && (
+          {functionMode !== 'mbom' && activeTab === 'local' && completedCount > 0 && (
             <div className="mb-8">
               {functionMode === 'mold' && (
                 <BatchOCRResults files={moldOCR.files} />
