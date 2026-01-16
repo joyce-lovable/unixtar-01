@@ -20,9 +20,13 @@ interface MbomRecord {
   material_category: string;
   source: string;
   created_at: string;
+  remark: string | null;
+  production_process: string;
+  has_substitute: string;
+  material_quality: string;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 const MbomDataTable = () => {
   const [records, setRecords] = useState<MbomRecord[]>([]);
@@ -123,7 +127,6 @@ const MbomDataTable = () => {
     }
 
     const wsData = dataToExport.map(r => ({
-      '檔案名稱': r.file_name,
       '客戶料號品名': r.customer_part_name,
       '主件料號': r.main_part_number,
       '元件料號': r.component_part_number,
@@ -131,8 +134,10 @@ const MbomDataTable = () => {
       '用量': r.quantity,
       '單位': r.unit,
       '用料類別': r.material_category,
-      '來源': r.source,
-      '建立時間': new Date(r.created_at).toLocaleString('zh-TW'),
+      '生產製程': r.production_process,
+      '用料品質': r.material_quality,
+      '有無替代料': r.has_substitute,
+      '備註': r.remark || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(wsData);
@@ -197,21 +202,23 @@ const MbomDataTable = () => {
               <TableHead className="w-20">CAD項次</TableHead>
               <TableHead className="w-20">用量</TableHead>
               <TableHead className="w-16">單位</TableHead>
-              <TableHead className="w-20">用料類別</TableHead>
-              <TableHead className="w-16">來源</TableHead>
-              <TableHead className="w-40">建立時間</TableHead>
+              <TableHead className="w-24">用料類別</TableHead>
+              <TableHead className="w-24">生產製程</TableHead>
+              <TableHead className="w-24">用料品質</TableHead>
+              <TableHead className="w-24">有無替代料</TableHead>
+              <TableHead>備註</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                   載入中...
                 </TableCell>
               </TableRow>
             ) : records.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                   {searchTerm ? '找不到符合的資料' : '尚無資料'}
                 </TableCell>
               </TableRow>
@@ -234,18 +241,10 @@ const MbomDataTable = () => {
                   <TableCell>{record.quantity}</TableCell>
                   <TableCell>{record.unit}</TableCell>
                   <TableCell>{record.material_category}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      record.source === 'mold' 
-                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
-                    }`}>
-                      {getSourceLabel(record.source)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {new Date(record.created_at).toLocaleString('zh-TW')}
-                  </TableCell>
+                  <TableCell>{record.production_process}</TableCell>
+                  <TableCell>{record.material_quality}</TableCell>
+                  <TableCell>{record.has_substitute}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{record.remark || '-'}</TableCell>
                 </TableRow>
               ))
             )}
