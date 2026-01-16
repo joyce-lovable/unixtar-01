@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+import { loadPdfjs } from '@/lib/pdfjs';
 
 interface GoogleDriveFile {
   id: string;
@@ -208,9 +209,7 @@ export const GoogleDrivePicker = ({ onFilesProcessed, mode = 'ocr', colorScheme 
 
   // PDF Blob 轉換為每頁 PNG（data URL）
   const convertPdfBlobToImages = async (pdfBlob: Blob): Promise<string[]> => {
-    const { pdfjs } = await import('react-pdf');
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
+    const pdfjs = await loadPdfjs();
     const arrayBuffer = await pdfBlob.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
 

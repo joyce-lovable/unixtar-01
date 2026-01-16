@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from "@/integrations/supabase/client";
+import { loadPdfjs } from '@/lib/pdfjs';
 
 export type OrientationDocumentType = 'mold' | 'sop';
 
@@ -32,9 +33,7 @@ export const useOrientationDetect = () => {
   };
 
   const convertPdfToImage = async (file: File): Promise<string> => {
-    const { pdfjs } = await import('react-pdf');
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
+    const pdfjs = await loadPdfjs();
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
     
