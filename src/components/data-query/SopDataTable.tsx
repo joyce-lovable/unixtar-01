@@ -237,10 +237,10 @@ const SopDataTable = () => {
     const wsData = dataToExport.map(r => ({
       '組號': r.group_id || '-',
       '料號': r.part_number,
+      '工序': r.operation,
+      '序號': r.sequence,
       '製程編碼': r.process_code,
       '製程名稱': r.process_name,
-      '作業類型': r.operation,
-      '作業順序': r.sequence,
     }));
 
     const ws = XLSX.utils.json_to_sheet(wsData);
@@ -377,10 +377,10 @@ const SopDataTable = () => {
               <TableHead className="w-20 whitespace-nowrap">組號</TableHead>
               <TableHead className="w-12 whitespace-nowrap">狀態</TableHead>
               <TableHead className="min-w-[150px] whitespace-nowrap">料號</TableHead>
+              <TableHead className="min-w-[100px] whitespace-nowrap">工序</TableHead>
+              <TableHead className="w-24 whitespace-nowrap">序號</TableHead>
               <TableHead className="w-24 whitespace-nowrap">製程編碼</TableHead>
               <TableHead className="min-w-[120px] whitespace-nowrap">製程名稱</TableHead>
-              <TableHead className="min-w-[100px] whitespace-nowrap">作業類型</TableHead>
-              <TableHead className="w-24 whitespace-nowrap">作業順序</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -429,10 +429,10 @@ const SopDataTable = () => {
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-sm whitespace-nowrap">{record.part_number}</TableCell>
-                    <TableCell>{record.process_code}</TableCell>
-                    <TableCell className="whitespace-nowrap">{record.process_name}</TableCell>
                     <TableCell className="whitespace-nowrap">{record.operation}</TableCell>
                     <TableCell>{record.sequence}</TableCell>
+                    <TableCell>{record.process_code}</TableCell>
+                    <TableCell className="whitespace-nowrap">{record.process_name}</TableCell>
                   </TableRow>
                 );
               })
