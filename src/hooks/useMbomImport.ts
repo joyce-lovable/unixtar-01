@@ -10,27 +10,32 @@ import {
 } from '@/lib/mbomParser';
 import * as XLSX from 'xlsx';
 
+export interface BatchMbomFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  error?: string;
+  parsedData?: MbomItem[];
+  mainPartNumber?: string;
+  customerPartName?: string;
+  moldCount?: number;
+}
+
 export interface MbomImportState {
+  files: BatchMbomFile[];
   isProcessing: boolean;
-  isLoading: boolean;
-  error: string | null;
-  parsedData: MbomItem[] | null;
-  fileName: string | null;
-  mainPartNumber: string | null;
-  customerPartName: string | null;
-  moldCount: number;
+  currentProcessingIndex: number;
+  selectedFileId: string | null;
 }
 
 export function useMbomImport() {
   const [state, setState] = useState<MbomImportState>({
+    files: [],
     isProcessing: false,
-    isLoading: false,
-    error: null,
-    parsedData: null,
-    fileName: null,
-    mainPartNumber: null,
-    customerPartName: null,
-    moldCount: 0,
+    currentProcessingIndex: -1,
+    selectedFileId: null,
   });
 
   /**
@@ -56,126 +61,264 @@ export function useMbomImport() {
   };
 
   /**
-   * 處理上傳的 TXT 檔案
+   * 處理單一 TXT 檔案
    */
-  const processFile = useCallback(async (file: File) => {
-    setState(prev => ({ 
-      ...prev, 
-      isProcessing: true, 
-      isLoading: true,
-      error: null,
-      parsedData: null,
-      fileName: file.name,
+  const processSingleFile = async (file: File): Promise<{
+    parsedData: MbomItem[];
+    mainPartNumber: string;
+    customerPartName: string;
+    moldCount: number;
+  }> => {
+    const content = await file.text();
+    const parsed = parseMbomTxt(content);
+    
+    if (!parsed.mainPartNumber || !parsed.customerPartName) {
+      throw new Error('無法從檔案中解析出成品料號或品名');
+    }
+
+    const moldData = await fetchMoldData(parsed.customerPartName);
+    const mbomData = assembleMbomData(parsed, moldData);
+
+    return {
+      parsedData: mbomData,
+      mainPartNumber: parsed.mainPartNumber,
+      customerPartName: parsed.customerPartName,
+      moldCount: moldData.length,
+    };
+  };
+
+  /**
+   * 新增多個檔案到佇列
+   */
+  const addFiles = useCallback((newFiles: File[]) => {
+    const txtFiles = newFiles.filter(f => f.name.toLowerCase().endsWith('.txt'));
+    
+    if (txtFiles.length === 0) return;
+
+    const batchFiles: BatchMbomFile[] = txtFiles.map(file => ({
+      id: `${file.name}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      file,
+      name: file.name,
+      size: file.size,
+      status: 'pending' as const,
     }));
 
-    try {
-      // 讀取檔案內容
-      const content = await file.text();
-      
-      // 解析 TXT 內容
-      const parsed = parseMbomTxt(content);
-      
-      if (!parsed.mainPartNumber || !parsed.customerPartName) {
-        throw new Error('無法從檔案中解析出成品料號或品名');
-      }
-
-      setState(prev => ({ 
-        ...prev, 
-        mainPartNumber: parsed.mainPartNumber,
-        customerPartName: parsed.customerPartName,
-      }));
-
-      // 查詢模具資料
-      const moldData = await fetchMoldData(parsed.customerPartName);
-      
-      setState(prev => ({ 
-        ...prev, 
-        moldCount: moldData.length,
-      }));
-
-      // 組裝完整 MBOM 資料
-      const mbomData = assembleMbomData(parsed, moldData);
-
-      setState(prev => ({ 
-        ...prev, 
-        isProcessing: false,
-        isLoading: false,
-        parsedData: mbomData,
-      }));
-
-      return mbomData;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '處理檔案時發生錯誤';
-      setState(prev => ({ 
-        ...prev, 
-        isProcessing: false,
-        isLoading: false,
-        error: errorMessage,
-      }));
-      return null;
-    }
+    setState(prev => {
+      const updatedFiles = [...prev.files, ...batchFiles];
+      return {
+        ...prev,
+        files: updatedFiles,
+        selectedFileId: prev.selectedFileId || batchFiles[0]?.id || null,
+      };
+    });
   }, []);
 
   /**
-   * 匯出 Excel 檔案
+   * 處理所有待處理的檔案
    */
-  const exportToExcel = useCallback(() => {
-    if (!state.parsedData) return;
+  const processAllFiles = useCallback(async () => {
+    const pendingFiles = state.files.filter(f => f.status === 'pending');
+    if (pendingFiles.length === 0) return;
 
-    // 建立工作表資料
+    setState(prev => ({ ...prev, isProcessing: true }));
+
+    for (let i = 0; i < state.files.length; i++) {
+      const file = state.files[i];
+      if (file.status !== 'pending') continue;
+
+      setState(prev => ({
+        ...prev,
+        currentProcessingIndex: i,
+        files: prev.files.map((f, idx) => 
+          idx === i ? { ...f, status: 'processing' as const } : f
+        ),
+      }));
+
+      try {
+        const result = await processSingleFile(file.file);
+
+        setState(prev => ({
+          ...prev,
+          files: prev.files.map((f, idx) => 
+            idx === i ? {
+              ...f,
+              status: 'completed' as const,
+              parsedData: result.parsedData,
+              mainPartNumber: result.mainPartNumber,
+              customerPartName: result.customerPartName,
+              moldCount: result.moldCount,
+            } : f
+          ),
+        }));
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : '處理檔案時發生錯誤';
+        setState(prev => ({
+          ...prev,
+          files: prev.files.map((f, idx) => 
+            idx === i ? { ...f, status: 'error' as const, error: errorMessage } : f
+          ),
+        }));
+      }
+    }
+
+    setState(prev => ({ ...prev, isProcessing: false, currentProcessingIndex: -1 }));
+  }, [state.files]);
+
+  /**
+   * 移除單一檔案
+   */
+  const removeFile = useCallback((fileId: string) => {
+    setState(prev => {
+      const updatedFiles = prev.files.filter(f => f.id !== fileId);
+      let newSelectedId = prev.selectedFileId;
+      
+      if (prev.selectedFileId === fileId) {
+        newSelectedId = updatedFiles.length > 0 ? updatedFiles[0].id : null;
+      }
+      
+      return {
+        ...prev,
+        files: updatedFiles,
+        selectedFileId: newSelectedId,
+      };
+    });
+  }, []);
+
+  /**
+   * 選擇要查看的檔案
+   */
+  const selectFile = useCallback((fileId: string) => {
+    setState(prev => ({ ...prev, selectedFileId: fileId }));
+  }, []);
+
+  /**
+   * 清除所有檔案
+   */
+  const clearAll = useCallback(() => {
+    setState({
+      files: [],
+      isProcessing: false,
+      currentProcessingIndex: -1,
+      selectedFileId: null,
+    });
+  }, []);
+
+  /**
+   * 匯出單一檔案的 Excel
+   */
+  const exportSingleExcel = useCallback((fileId: string) => {
+    const file = state.files.find(f => f.id === fileId);
+    if (!file?.parsedData) return;
+
     const wsData = [
       MBOM_HEADERS,
-      ...state.parsedData.map(mbomItemToArray),
+      ...file.parsedData.map(mbomItemToArray),
     ];
 
-    // 建立工作簿
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'MBOM');
 
-    // 設定欄位寬度
     ws['!cols'] = [
-      { wch: 18 },  // 客戶料號品名
-      { wch: 20 },  // 主件料號
-      { wch: 12 },  // 生產工序
-      { wch: 12 },  // CAD項次
-      { wch: 20 },  // 元件料號
-      { wch: 12 },  // 用料類別
-      { wch: 12 },  // 組成用量
-      { wch: 14 },  // 單位
-      { wch: 16 },  // 是否使用代用品
-      { wch: 14 },  // 用料素質
-      { wch: 40 },  // 備註說明
+      { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 20 },
+      { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
     ];
 
-    // 產生檔名
-    const baseName = state.fileName?.replace(/\.txt$/i, '') || 'MBOM';
-    const exportFileName = `${baseName}_MBOM.xlsx`;
-
-    // 下載檔案
-    XLSX.writeFile(wb, exportFileName);
-  }, [state.parsedData, state.fileName]);
+    const baseName = file.name.replace(/\.txt$/i, '');
+    XLSX.writeFile(wb, `${baseName}_MBOM.xlsx`);
+  }, [state.files]);
 
   /**
-   * 清除資料
+   * 匯出全部（合併為一個工作表）
    */
-  const clearData = useCallback(() => {
-    setState({
-      isProcessing: false,
-      isLoading: false,
-      error: null,
-      parsedData: null,
-      fileName: null,
-      mainPartNumber: null,
-      customerPartName: null,
-      moldCount: 0,
+  const exportAllMerged = useCallback(() => {
+    const completedFiles = state.files.filter(f => f.status === 'completed' && f.parsedData);
+    if (completedFiles.length === 0) return;
+
+    const allData: MbomItem[] = [];
+    completedFiles.forEach(file => {
+      if (file.parsedData) {
+        allData.push(...file.parsedData);
+      }
     });
-  }, []);
+
+    const wsData = [
+      MBOM_HEADERS,
+      ...allData.map(mbomItemToArray),
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'MBOM_合併');
+
+    ws['!cols'] = [
+      { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 20 },
+      { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
+    ];
+
+    XLSX.writeFile(wb, `MBOM_批次匯出_合併.xlsx`);
+  }, [state.files]);
+
+  /**
+   * 匯出全部（每檔一個工作表）
+   */
+  const exportAllSeparate = useCallback(() => {
+    const completedFiles = state.files.filter(f => f.status === 'completed' && f.parsedData);
+    if (completedFiles.length === 0) return;
+
+    const wb = XLSX.utils.book_new();
+
+    completedFiles.forEach(file => {
+      if (!file.parsedData) return;
+
+      const wsData = [
+        MBOM_HEADERS,
+        ...file.parsedData.map(mbomItemToArray),
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [
+        { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 20 },
+        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 40 },
+      ];
+
+      // 使用料號作為工作表名稱（最多 31 字元）
+      const sheetName = (file.mainPartNumber || file.name.replace(/\.txt$/i, '')).substring(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+
+    XLSX.writeFile(wb, `MBOM_批次匯出_分頁.xlsx`);
+  }, [state.files]);
+
+  // 計算統計資料
+  const completedFiles = state.files.filter(f => f.status === 'completed');
+  const pendingCount = state.files.filter(f => f.status === 'pending').length;
+  const completedCount = completedFiles.length;
+  const errorCount = state.files.filter(f => f.status === 'error').length;
+  const totalItems = completedFiles.reduce((sum, f) => sum + (f.parsedData?.length || 0), 0);
+  const totalMolds = completedFiles.reduce((sum, f) => sum + (f.moldCount || 0), 0);
+
+  // 取得目前選中的檔案資料
+  const selectedFile = state.files.find(f => f.id === state.selectedFileId);
 
   return {
-    ...state,
-    processFile,
-    exportToExcel,
-    clearData,
+    files: state.files,
+    isProcessing: state.isProcessing,
+    currentProcessingIndex: state.currentProcessingIndex,
+    selectedFileId: state.selectedFileId,
+    selectedFile,
+    pendingCount,
+    completedCount,
+    errorCount,
+    totalItems,
+    totalMolds,
+    addFiles,
+    processAllFiles,
+    removeFile,
+    selectFile,
+    clearAll,
+    exportSingleExcel,
+    exportAllMerged,
+    exportAllSeparate,
   };
 }
