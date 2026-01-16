@@ -12,6 +12,7 @@ import { DailyCheckUpload } from '@/components/DailyCheckUpload';
 import { DailyCheckResults } from '@/components/DailyCheckResults';
 import { MbomUpload } from '@/components/MbomUpload';
 import { MbomResults } from '@/components/MbomResults';
+import { MbomDuplicateDialog } from '@/components/MbomDuplicateDialog';
 import { useBatchOCR } from '@/hooks/useBatchOCR';
 import { useMakeWebhook } from '@/hooks/useMakeWebhook';
 import { useOrientationDetect } from '@/hooks/useOrientationDetect';
@@ -408,6 +409,14 @@ const Index = () => {
                 onSetAutoOverwrite={mbomImport.setAutoOverwrite}
                 onSyncSingle={mbomImport.syncSingleFile}
                 onSyncAll={mbomImport.syncAllFiles}
+              />
+
+              {/* 重複確認對話框 */}
+              <MbomDuplicateDialog
+                open={mbomImport.showDuplicateDialog}
+                duplicates={mbomImport.pendingDuplicates}
+                onConfirm={mbomImport.confirmOverwriteDuplicates}
+                onCancel={mbomImport.cancelOverwriteDuplicates}
               />
             </div>
           )}
