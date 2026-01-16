@@ -13,6 +13,7 @@ import { DailyCheckResults } from '@/components/DailyCheckResults';
 import { MbomUpload } from '@/components/MbomUpload';
 import { MbomResults } from '@/components/MbomResults';
 import { MbomDuplicateDialog } from '@/components/MbomDuplicateDialog';
+import MainNavigation from '@/components/MainNavigation';
 import { useBatchOCR } from '@/hooks/useBatchOCR';
 import { useMakeWebhook } from '@/hooks/useMakeWebhook';
 import { useOrientationDetect } from '@/hooks/useOrientationDetect';
@@ -108,17 +109,20 @@ const Index = () => {
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div 
-              className="w-10 h-10 rounded-xl flex items-center justify-center shadow-glow"
-              style={{ background: 'var(--gradient-primary)' }}
-            >
-              <Scan className="w-5 h-5 text-primary-foreground" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-10 h-10 rounded-xl flex items-center justify-center shadow-glow"
+                style={{ background: 'var(--gradient-primary)' }}
+              >
+                <Scan className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="font-bold text-xl text-foreground">Unixtar 智慧辨識 v 1.4</h1>
+                <p className="text-xs text-muted-foreground">精準提取 PDF 與圖片文字 (2026/1/16 修正版)</p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-bold text-xl text-foreground">Unixtar 智慧辨識 v 1.4</h1>
-              <p className="text-xs text-muted-foreground">精準提取 PDF 與圖片文字 (2026/1/16 修正版)</p>
-            </div>
+            <MainNavigation />
           </div>
         </div>
       </header>
