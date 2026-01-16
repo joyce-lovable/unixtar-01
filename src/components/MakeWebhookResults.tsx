@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { MakeWebhookFile } from '@/hooks/useMakeWebhook';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import * as XLSX from 'xlsx';
@@ -15,6 +16,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
 interface MakeWebhookResultsProps {
   files: MakeWebhookFile[];
 }
@@ -34,6 +46,19 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
   const [hasSynced, setHasSynced] = useState(false);
   const syncAttemptedRef = useRef(false);
   const { toast } = useToast();
+  
+  // 覆蓋功能狀態
+  const [autoOverwrite, setAutoOverwrite] = useState(false);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [duplicateFileNames, setDuplicateFileNames] = useState<string[]>([]);
+  const [pendingInsertData, setPendingInsertData] = useState<{
+    part_number: string;
+    operation: string;
+    sequence: string;
+    process_code: number;
+    process_name: string;
+    file_name: string;
+  }[]>([]);
 
   const toggleExpand = (fileId: string) => {
     setExpandedFiles(prev => {
@@ -178,6 +203,60 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
     });
   };
 
+  // 準備要插入的資料
+  const prepareInsertData = () => {
+    return allResultData.map((row, index) => {
+      // 找到對應的檔案名稱
+      let fileName = '';
+      let currentIndex = 0;
+      
+      for (const file of completedFiles) {
+        const defaultPartNumber = extractPartNumber(file.name);
+        for (const page of file.pages || []) {
+          if (page.status !== 'completed' || page.result == null) continue;
+          const resultText = getResultText(page.result);
+          const pageRows = parseResultText(resultText, defaultPartNumber);
+          if (index >= currentIndex && index < currentIndex + pageRows.length) {
+            fileName = file.name;
+            break;
+          }
+          currentIndex += pageRows.length;
+        }
+        if (fileName) break;
+      }
+
+      return {
+        part_number: row.partNumber,
+        operation: row.operation,
+        sequence: row.sequence,
+        process_code: row.processCode,
+        process_name: row.processName,
+        file_name: fileName,
+      };
+    });
+  };
+
+  // 執行插入操作
+  const executeInsert = async (data: typeof pendingInsertData, overwrittenCount: number = 0) => {
+    const { error } = await supabase
+      .from('sop_ocr_results')
+      .insert(data);
+
+    if (error) {
+      throw error;
+    }
+
+    const message = overwrittenCount > 0
+      ? `已將 ${data.length} 筆資料寫入資料庫（覆蓋 ${overwrittenCount} 個檔案）`
+      : `已將 ${data.length} 筆資料寫入資料庫`;
+
+    toast({
+      title: '同步成功',
+      description: message,
+    });
+    setHasSynced(true);
+  };
+
   // 同步到 Supabase 資料庫
   const handleSyncToSupabase = async () => {
     if (allResultData.length === 0) {
@@ -192,37 +271,8 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
     setIsSyncing(true);
 
     try {
-      // 準備要插入的資料，加入檔案名稱
-      const insertData = allResultData.map((row, index) => {
-        // 找到對應的檔案名稱
-        let fileName = '';
-        let currentIndex = 0;
-        
-        for (const file of completedFiles) {
-          const defaultPartNumber = extractPartNumber(file.name);
-          for (const page of file.pages || []) {
-            if (page.status !== 'completed' || page.result == null) continue;
-            const resultText = getResultText(page.result);
-            const pageRows = parseResultText(resultText, defaultPartNumber);
-            if (index >= currentIndex && index < currentIndex + pageRows.length) {
-              fileName = file.name;
-              break;
-            }
-            currentIndex += pageRows.length;
-          }
-          if (fileName) break;
-        }
-
-        return {
-          part_number: row.partNumber,
-          operation: row.operation,
-          sequence: row.sequence,
-          process_code: row.processCode,
-          process_name: row.processName,
-          file_name: fileName,
-        };
-      });
-
+      const insertData = prepareInsertData();
+      
       // 檢查資料庫中是否已存在相同檔案名稱
       const fileNames = [...new Set(insertData.map(d => d.file_name).filter(n => n))];
       
@@ -232,44 +282,92 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
         .in('file_name', fileNames);
 
       const existingFileNames = new Set(existingFiles?.map(f => f.file_name) || []);
-      
-      // 找出重複的檔案並逐一顯示提示
-      const duplicateFiles = fileNames.filter(name => existingFileNames.has(name));
-      duplicateFiles.forEach(name => {
-        toast({
-          title: '檔案已存在',
-          description: `${name} 已上傳過資料庫，跳過此檔案`,
-        });
+      const duplicates = fileNames.filter(name => existingFileNames.has(name));
+
+      // 如果有重複檔案
+      if (duplicates.length > 0) {
+        if (autoOverwrite) {
+          // 自動覆蓋模式：直接刪除舊資料
+          await supabase
+            .from('sop_ocr_results')
+            .delete()
+            .in('file_name', duplicates);
+          
+          await executeInsert(insertData, duplicates.length);
+        } else {
+          // 詢問模式：顯示對話框
+          setDuplicateFileNames(duplicates);
+          setPendingInsertData(insertData);
+          setShowDuplicateDialog(true);
+          setIsSyncing(false);
+          return;
+        }
+      } else {
+        // 無重複，直接寫入
+        await executeInsert(insertData);
+      }
+    } catch (error: any) {
+      console.error('同步到 Supabase 失敗:', error);
+      toast({
+        title: '同步失敗',
+        description: error.message || '寫入資料庫時發生錯誤',
+        variant: 'destructive',
       });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
-      // 過濾掉重複檔案的資料
-      const newData = insertData.filter(row => !existingFileNames.has(row.file_name));
+  // 使用者選擇「覆蓋」
+  const handleOverwrite = async () => {
+    setShowDuplicateDialog(false);
+    setIsSyncing(true);
 
-      // 如果沒有新資料需要寫入
-      if (newData.length === 0) {
+    try {
+      // 刪除舊資料
+      await supabase
+        .from('sop_ocr_results')
+        .delete()
+        .in('file_name', duplicateFileNames);
+
+      // 寫入全部資料
+      await executeInsert(pendingInsertData, duplicateFileNames.length);
+    } catch (error: any) {
+      console.error('覆蓋同步失敗:', error);
+      toast({
+        title: '同步失敗',
+        description: error.message || '寫入資料庫時發生錯誤',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // 使用者選擇「跳過」
+  const handleSkip = async () => {
+    setShowDuplicateDialog(false);
+    setIsSyncing(true);
+
+    try {
+      const existingSet = new Set(duplicateFileNames);
+      const newData = pendingInsertData.filter(row => !existingSet.has(row.file_name));
+      
+      if (newData.length > 0) {
+        await executeInsert(newData);
+        toast({
+          title: '同步成功',
+          description: `已寫入 ${newData.length} 筆資料，跳過 ${duplicateFileNames.length} 個重複檔案`,
+        });
+      } else {
         toast({
           title: '無新資料需同步',
           description: '所有檔案都已存在於資料庫中',
         });
-        setHasSynced(true);
-        return;
       }
-
-      const { error } = await supabase
-        .from('sop_ocr_results')
-        .insert(newData);
-
-      if (error) {
-        throw error;
-      }
-
-      toast({
-        title: '同步成功',
-        description: `已將 ${newData.length} 筆資料寫入資料庫`,
-      });
       setHasSynced(true);
     } catch (error: any) {
-      console.error('同步到 Supabase 失敗:', error);
+      console.error('同步失敗:', error);
       toast({
         title: '同步失敗',
         description: error.message || '寫入資料庫時發生錯誤',
@@ -336,6 +434,19 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
             </span>
           )}
           <span className="text-xs text-muted-foreground">解析 {allResultData.length} 筆</span>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="autoOverwriteSop"
+              checked={autoOverwrite}
+              onCheckedChange={(checked) => setAutoOverwrite(checked === true)}
+            />
+            <label
+              htmlFor="autoOverwriteSop"
+              className="text-xs text-muted-foreground cursor-pointer select-none"
+            >
+              遇重複自動覆蓋
+            </label>
+          </div>
           <Button
             onClick={handleSyncToSupabase}
             size="sm"
@@ -526,6 +637,30 @@ export const MakeWebhookResults = ({ files }: MakeWebhookResultsProps) => {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* 重複檔案對話框 */}
+      <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>偵測到重複檔案</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-3">以下檔案已存在於資料庫中：</p>
+                <ul className="list-disc list-inside space-y-1 max-h-40 overflow-y-auto bg-muted/50 rounded-lg p-3">
+                  {duplicateFileNames.map((name, idx) => (
+                    <li key={idx} className="text-sm font-mono truncate">{name}</li>
+                  ))}
+                </ul>
+                <p className="mt-3">請選擇處理方式：</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleSkip}>跳過這些檔案</AlertDialogCancel>
+            <AlertDialogAction onClick={handleOverwrite}>覆蓋舊資料</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 };
