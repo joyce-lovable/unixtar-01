@@ -408,6 +408,7 @@ const Index = () => {
                 selectedFile={mbomImport.selectedFile}
                 totalItems={mbomImport.totalItems}
                 totalMolds={mbomImport.totalMolds}
+                totalSubAssemblies={mbomImport.totalSubAssemblies}
                 completedCount={mbomImport.completedCount}
                 syncedCount={mbomImport.syncedCount}
                 isSyncing={mbomImport.isSyncing}

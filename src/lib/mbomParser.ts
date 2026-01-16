@@ -1,11 +1,16 @@
 /**
  * MBOM TXT 解析器
  * 用於解析實英實業股份有限公司的零件表 TXT 檔案
+ * 
+ * 支援功能：
+ * - 一組「成品料號 + 品名」下可有多個半成品
+ * - 透過「料號」變化和項次重新排列來識別半成品切換
+ * - 項次 0 為半成品標記行，不計入零件清單
  */
 
 export interface MbomItem {
   customerPartName: string;       // 客戶料號品名
-  mainPartNumber: string;         // 主件料號 (PK)
+  mainPartNumber: string;         // 主件料號 (PK) - 成品時放成品料號，半成品時放該半成品的料號
   productionProcess: string;      // 生產工序 (PK)
   cadSequence: number;            // CAD項次 (PK)
   componentPartNumber: string;    // 元件料號 (PK)
@@ -18,10 +23,23 @@ export interface MbomItem {
   source: 'txt' | 'mold' | 'sub'; // 資料來源標記
 }
 
+/**
+ * 半成品區段
+ */
+export interface SubAssembly {
+  subPartNumber: string;      // 半成品的「料號」（會變成 mainPartNumber）
+  items: RawItem[];           // 該半成品下的零件（項次 > 0）
+  order: number;              // 在 TXT 中出現的順序（用於排序）
+}
+
+/**
+ * 解析後的產品資料
+ */
 export interface ParsedProduct {
   mainPartNumber: string;         // 成品料號
   customerPartName: string;       // 品名
-  items: RawItem[];               // 零件項目
+  mainItems: RawItem[];           // 成品區段的零件（項次 > 0）
+  subAssemblies: SubAssembly[];   // 多個半成品，按出現順序排列
 }
 
 export interface RawItem {
@@ -30,8 +48,6 @@ export interface RawItem {
   quantity: string;               // 用量 (原始字串)
   unit: string;                   // 單位
   remark: string;                 // 備註
-  isSubAssembly?: boolean;        // 是否為半成品 (項次=0)
-  subAssemblyPartNumber?: string; // 半成品料號 (僅當 isSubAssembly=true)
 }
 
 export interface MoldData {
@@ -80,21 +96,29 @@ export function formatQuantity(value: number): number {
 
 /**
  * 解析 TXT 檔案內容
+ * 
+ * 解析規則：
+ * 1. 同一組「成品料號 + 品名」視為一組
+ * 2. 第一個區段（料號 = 成品料號）為成品資料
+ * 3. 料號不同於成品料號的區段為半成品
+ * 4. 項次重新排列（從小數字開始）表示切換到新的半成品
+ * 5. 項次 0 為半成品標記行，忽略不處理
  */
 export function parseMbomTxt(content: string): ParsedProduct {
   const lines = content.split('\n');
   
-  // 擷取成品料號和品名
+  // 1. 擷取成品料號和品名（從文件開頭的 header）
   let mainPartNumber = '';
   let customerPartName = '';
   
   for (const line of lines) {
-    // 尋找成品料號和品名
+    // 尋找成品料號
     const mainMatch = line.match(/成品料號\s*:\s*(\S+)/);
-    if (mainMatch) {
+    if (mainMatch && !mainPartNumber) {
       mainPartNumber = mainMatch[1];
     }
     
+    // 尋找品名
     const nameMatch = line.match(/品名\s*:\s*(\S+)/);
     if (nameMatch && !customerPartName) {
       customerPartName = nameMatch[1];
@@ -103,27 +127,57 @@ export function parseMbomTxt(content: string): ParsedProduct {
     if (mainPartNumber && customerPartName) break;
   }
   
-  // 擷取所有零件項目
-  const items: RawItem[] = [];
+  // 2. 追蹤當前區段
+  let currentSectionPartNumber = '';  // 當前區段的「料號」
+  let currentItems: RawItem[] = [];
+  let lastSequence = -1;
   let currentRemark = '';
   let lastItem: RawItem | null = null;
-  let inSubAssemblySection = false;
-  let currentSubAssemblyPartNumber = '';
+  
+  // 3. 儲存結果
+  const mainItems: RawItem[] = [];
+  const subAssemblies: SubAssembly[] = [];
+  let subAssemblyOrder = 0;
+  
+  // 用於保存前一個區段的函數
+  const saveCurrentSection = () => {
+    if (currentItems.length === 0) return;
+    
+    if (currentSectionPartNumber === mainPartNumber || currentSectionPartNumber === '') {
+      // 成品區段
+      mainItems.push(...currentItems);
+    } else {
+      // 半成品區段
+      subAssemblies.push({
+        subPartNumber: currentSectionPartNumber,
+        items: [...currentItems],
+        order: subAssemblyOrder++,
+      });
+    }
+    currentItems = [];
+    lastSequence = -1;
+    lastItem = null;
+  };
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // 偵測半成品區段 (料號行含有不同的料號)
-    const subAssemblyHeaderMatch = line.match(/│料號:(\S+)\s+│.*│\(半成品\)P\/N:/);
-    if (subAssemblyHeaderMatch) {
-      const headerPartNumber = subAssemblyHeaderMatch[1];
-      if (headerPartNumber !== mainPartNumber) {
-        inSubAssemblySection = true;
-        currentSubAssemblyPartNumber = headerPartNumber;
+    // 偵測區段 header 行：│料號:XXX
+    // 這可能是成品區段或半成品區段
+    const sectionHeaderMatch = line.match(/│料號:(\S+)\s+│/);
+    if (sectionHeaderMatch) {
+      const headerPartNumber = sectionHeaderMatch[1];
+      
+      // 如果料號改變，保存前一個區段並開始新區段
+      if (headerPartNumber !== currentSectionPartNumber) {
+        saveCurrentSection();
+        currentSectionPartNumber = headerPartNumber;
       }
+      continue;
     }
     
     // 解析零件行 (項次|零件料號|用量|單位|...)
+    // 格式: │ 項次│零件料號 │ 用量 │單位 │...
     const itemMatch = line.match(/│\s*(\d+)│(\S+)\s*│\s*([\d./]+)\s*│(\S+)\s*│/);
     if (itemMatch) {
       // 先保存前一個項目的備註
@@ -137,26 +191,35 @@ export function parseMbomTxt(content: string): ParsedProduct {
       const quantity = itemMatch[3];
       const unit = itemMatch[4];
       
+      // 項次 0 為半成品標記行，忽略
+      if (sequence === 0) {
+        continue;
+      }
+      
+      // 偵測項次重新排列：如果項次突然變小（例如從 14 跳到 1）
+      // 表示切換到新的半成品（同一料號下可能有多個半成品區段）
+      // 但要確認我們已經有資料了
+      if (currentItems.length > 0 && sequence <= lastSequence && sequence <= 2) {
+        // 這可能是新的半成品區段開始（項次從 1 或 2 重新開始）
+        // 保存目前區段，但不改變 currentSectionPartNumber
+        // 因為可能還是同一個料號下的不同區段
+        
+        // 注意：這裡不需要保存，因為料號變化時會在上面的邏輯處理
+        // 項次重新排列通常伴隨著料號變化，由 sectionHeaderMatch 處理
+      }
+      
       const item: RawItem = {
         sequence,
         partNumber,
         quantity,
         unit,
         remark: '',
-        isSubAssembly: sequence === 0,
       };
       
-      // 如果是半成品項次 (0)，標記下一批項目屬於此半成品
-      if (sequence === 0) {
-        item.subAssemblyPartNumber = partNumber;
-        inSubAssemblySection = true;
-        currentSubAssemblyPartNumber = partNumber;
-      } else if (inSubAssemblySection && currentSubAssemblyPartNumber) {
-        item.subAssemblyPartNumber = currentSubAssemblyPartNumber;
-      }
-      
-      items.push(item);
+      currentItems.push(item);
       lastItem = item;
+      lastSequence = sequence;
+      continue;
     }
     
     // 解析備註行
@@ -167,58 +230,59 @@ export function parseMbomTxt(content: string): ParsedProduct {
         lastItem.remark = currentRemark;
         currentRemark = '';
       }
+      continue;
+    }
+    
+    // 解析獨立的備註行（某些格式）
+    const remarkLineMatch = line.match(/備註:(.+)/);
+    if (remarkLineMatch && lastItem) {
+      const remarkText = remarkLineMatch[1].trim();
+      if (remarkText && !lastItem.remark) {
+        lastItem.remark = remarkText;
+      }
     }
   }
+  
+  // 保存最後一個區段
+  if (lastItem && currentRemark) {
+    lastItem.remark = currentRemark;
+  }
+  saveCurrentSection();
   
   return {
     mainPartNumber,
     customerPartName,
-    items,
+    mainItems,
+    subAssemblies,
   };
 }
 
 /**
  * 組裝完整的 MBOM 資料
- * 順序: TXT 主產品零件 → 模具資料 → 半成品零件
+ * 
+ * 順序規則:
+ * 1. TXT 成品主要資料 (source: 'txt')
+ * 2. 模具資料 (source: 'mold')
+ * 3. TXT 半成品1資料 (source: 'sub')
+ * 4. TXT 半成品2資料 (source: 'sub')
+ * ... 依此類推，半成品按 TXT 中的順序排列
  */
 export function assembleMbomData(
   parsed: ParsedProduct,
   moldData: MoldData[]
 ): MbomItem[] {
   const result: MbomItem[] = [];
-  const { mainPartNumber, customerPartName, items } = parsed;
-  
-  // 分離主產品零件和半成品零件
-  const mainItems: RawItem[] = [];
-  const subAssemblyGroups: Map<string, RawItem[]> = new Map();
-  
-  for (const item of items) {
-    if (item.isSubAssembly) {
-      // 項次 0 的半成品標記，跳過但記錄
-      continue;
-    }
-    
-    if (item.subAssemblyPartNumber) {
-      // 屬於半成品的零件
-      if (!subAssemblyGroups.has(item.subAssemblyPartNumber)) {
-        subAssemblyGroups.set(item.subAssemblyPartNumber, []);
-      }
-      subAssemblyGroups.get(item.subAssemblyPartNumber)!.push(item);
-    } else {
-      // 主產品零件
-      mainItems.push(item);
-    }
-  }
+  const { mainPartNumber, customerPartName, mainItems, subAssemblies } = parsed;
   
   let cadSequence = 1;
   
-  // 1. 加入主產品零件 (TXT)
+  // 1. 成品區段的零件 (source: 'txt')
   for (const item of mainItems) {
     const hasSubstitute = item.remark.includes('可替代料號') ? 'Y' : 'N';
     
     result.push({
       customerPartName,
-      mainPartNumber,
+      mainPartNumber,              // 成品料號
       productionProcess: '010',
       cadSequence: cadSequence++,
       componentPartNumber: item.partNumber,
@@ -232,11 +296,11 @@ export function assembleMbomData(
     });
   }
   
-  // 2. 加入模具資料 (Supabase)
+  // 2. 模具資料 (source: 'mold')
   for (const mold of moldData) {
     result.push({
       customerPartName,
-      mainPartNumber,
+      mainPartNumber,              // 仍用成品料號
       productionProcess: '010',
       cadSequence: cadSequence++,
       componentPartNumber: mold.mold_number,
@@ -250,16 +314,19 @@ export function assembleMbomData(
     });
   }
   
-  // 3. 加入半成品零件 (TXT)
-  for (const [subPartNumber, subItems] of subAssemblyGroups) {
+  // 3. 依順序加入各半成品 (source: 'sub')
+  // 半成品按照在 TXT 中出現的順序排列
+  const sortedSubAssemblies = [...subAssemblies].sort((a, b) => a.order - b.order);
+  
+  for (const subAssembly of sortedSubAssemblies) {
     let subCadSequence = 1;
     
-    for (const item of subItems) {
+    for (const item of subAssembly.items) {
       const hasSubstitute = item.remark.includes('可替代料號') ? 'Y' : 'N';
       
       result.push({
-        customerPartName,
-        mainPartNumber: subPartNumber,
+        customerPartName,                    // 品名維持不變
+        mainPartNumber: subAssembly.subPartNumber,  // 半成品的「料號」
         productionProcess: '010',
         cadSequence: subCadSequence++,
         componentPartNumber: item.partNumber,

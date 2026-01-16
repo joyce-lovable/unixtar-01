@@ -28,6 +28,7 @@ interface MbomResultsProps {
   selectedFile: BatchMbomFile | undefined;
   totalItems: number;
   totalMolds: number;
+  totalSubAssemblies: number;
   completedCount: number;
   syncedCount: number;
   isSyncing: boolean;
@@ -46,6 +47,7 @@ export function MbomResults({
   selectedFile,
   totalItems,
   totalMolds,
+  totalSubAssemblies,
   completedCount,
   syncedCount,
   isSyncing,
@@ -94,8 +96,12 @@ export function MbomResults({
               <Wrench className="w-3 h-3 mr-1" />
               {totalMolds} 個模具
             </Badge>
+            <Badge variant="outline" className="bg-violet-500/10 text-violet-600 border-violet-500/30">
+              <Box className="w-3 h-3 mr-1" />
+              {totalSubAssemblies} 個半成品
+            </Badge>
             {syncedCount > 0 && (
-              <Badge variant="outline" className="bg-violet-500/10 text-violet-600 border-violet-500/30">
+              <Badge variant="outline" className="bg-purple-500/10 text-purple-600 border-purple-500/30">
                 <Database className="w-3 h-3 mr-1" />
                 {syncedCount} 已同步
               </Badge>
