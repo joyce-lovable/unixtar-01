@@ -19,7 +19,7 @@ interface SopRecord {
   created_at: string;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 const SopDataTable = () => {
   const [records, setRecords] = useState<SopRecord[]>([]);

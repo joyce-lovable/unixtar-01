@@ -17,7 +17,7 @@ interface MoldRecord {
   created_at: string;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 const MoldDataTable = () => {
   const [records, setRecords] = useState<MoldRecord[]>([]);
