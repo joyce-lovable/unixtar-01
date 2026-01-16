@@ -430,6 +430,7 @@ export function useMbomImport() {
         remark: item.remark || '',
         source: item.source,
         group_id: groupId,
+        sort_order: item.sortOrder,
       }));
 
       const { error } = await supabase
