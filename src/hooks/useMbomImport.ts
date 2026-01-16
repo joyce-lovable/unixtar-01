@@ -34,6 +34,13 @@ export interface MbomImportState {
   autoOverwrite: boolean;
 }
 
+export interface DuplicateInfo {
+  fileId: string;
+  fileName: string;
+  customerPartName: string;
+  existingCount: number;
+}
+
 export function useMbomImport() {
   const [state, setState] = useState<MbomImportState>({
     files: [],
@@ -43,6 +50,10 @@ export function useMbomImport() {
     selectedFileId: null,
     autoOverwrite: false,
   });
+
+  // 待確認的重複項目
+  const [pendingDuplicates, setPendingDuplicates] = useState<DuplicateInfo[]>([]);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
 
   /**
    * 從 Supabase 查詢模具資料
@@ -306,17 +317,51 @@ export function useMbomImport() {
   }, []);
 
   /**
+   * 檢查單一檔案是否有重複的客戶料號
+   */
+  const checkDuplicate = async (customerPartName: string): Promise<number> => {
+    const { count, error } = await supabase
+      .from('mbom_results')
+      .select('*', { count: 'exact', head: true })
+      .eq('customer_part_name', customerPartName);
+
+    if (error) {
+      console.error('檢查重複資料錯誤:', error);
+      return 0;
+    }
+
+    return count || 0;
+  };
+
+  /**
    * 同步單一檔案到 Supabase
    */
   const syncSingleFile = useCallback(async (fileId: string, overwrite: boolean = false) => {
     const file = state.files.find(f => f.id === fileId);
     if (!file?.parsedData || file.parsedData.length === 0) return;
 
+    const customerPartName = file.customerPartName;
+    
+    // 如果不是覆蓋模式，先檢查是否有重複
+    if (!overwrite && customerPartName) {
+      const existingCount = await checkDuplicate(customerPartName);
+      if (existingCount > 0) {
+        // 設定待確認的重複項目並顯示對話框
+        setPendingDuplicates([{
+          fileId: file.id,
+          fileName: file.name,
+          customerPartName,
+          existingCount,
+        }]);
+        setShowDuplicateDialog(true);
+        return;
+      }
+    }
+
     setState(prev => ({ ...prev, isSyncing: true }));
 
     try {
       const fileName = file.name;
-      const customerPartName = file.customerPartName;
 
       // 如果需要覆蓋，先刪除該客戶料號品名的舊資料
       if (overwrite && customerPartName) {
@@ -349,13 +394,11 @@ export function useMbomImport() {
 
       if (error) {
         if (error.code === '23505') {
-          // 唯一鍵衝突
-          toast.error(`同步失敗：${fileName} 資料已存在，請勾選「遇重複自動覆蓋」重試`);
+          toast.error(`同步失敗：${fileName} 資料已存在，請選擇覆蓋`);
         } else {
           throw error;
         }
       } else {
-        // 更新檔案狀態為已同步
         setState(prev => ({
           ...prev,
           files: prev.files.map(f => 
@@ -382,18 +425,51 @@ export function useMbomImport() {
       return;
     }
 
+    // 如果沒有勾選自動覆蓋，先檢查所有檔案是否有重複
+    if (!state.autoOverwrite) {
+      const duplicates: DuplicateInfo[] = [];
+      
+      for (const file of completedFiles) {
+        if (file.customerPartName) {
+          const existingCount = await checkDuplicate(file.customerPartName);
+          if (existingCount > 0) {
+            duplicates.push({
+              fileId: file.id,
+              fileName: file.name,
+              customerPartName: file.customerPartName,
+              existingCount,
+            });
+          }
+        }
+      }
+
+      // 如果有重複項目，顯示對話框
+      if (duplicates.length > 0) {
+        setPendingDuplicates(duplicates);
+        setShowDuplicateDialog(true);
+        return;
+      }
+    }
+
+    await performSyncAllFiles(completedFiles);
+  }, [state.files, state.autoOverwrite]);
+
+  /**
+   * 實際執行批次同步
+   */
+  const performSyncAllFiles = async (filesToSync: BatchMbomFile[], overwrite: boolean = false) => {
     setState(prev => ({ ...prev, isSyncing: true }));
 
     let successCount = 0;
     let errorCount = 0;
 
-    for (const file of completedFiles) {
+    for (const file of filesToSync) {
       try {
         const fileName = file.name;
         const customerPartName = file.customerPartName;
 
-        // 如果自動覆蓋，先刪除該客戶料號品名的舊資料
-        if (state.autoOverwrite && customerPartName) {
+        // 如果需要覆蓋，先刪除該客戶料號品名的舊資料
+        if ((state.autoOverwrite || overwrite) && customerPartName) {
           await supabase
             .from('mbom_results')
             .delete()
@@ -447,10 +523,42 @@ export function useMbomImport() {
       toast.success(`成功同步 ${successCount} 個檔案至資料庫`);
     } else if (successCount > 0 && errorCount > 0) {
       toast.warning(`同步完成：${successCount} 個成功，${errorCount} 個失敗（可能重複）`);
-    } else {
-      toast.error(`同步失敗：${errorCount} 個檔案發生錯誤，請勾選「遇重複自動覆蓋」重試`);
+    } else if (errorCount > 0) {
+      toast.error(`同步失敗：${errorCount} 個檔案發生錯誤`);
     }
-  }, [state.files, state.autoOverwrite]);
+  };
+
+  /**
+   * 確認覆蓋重複項目
+   */
+  const confirmOverwriteDuplicates = useCallback(async () => {
+    setShowDuplicateDialog(false);
+    
+    if (pendingDuplicates.length === 0) return;
+
+    // 找出需要同步的檔案
+    const filesToSync = state.files.filter(f => 
+      pendingDuplicates.some(d => d.fileId === f.id)
+    );
+
+    if (filesToSync.length === 1) {
+      // 單一檔案同步
+      await syncSingleFile(filesToSync[0].id, true);
+    } else {
+      // 批次同步
+      await performSyncAllFiles(filesToSync, true);
+    }
+
+    setPendingDuplicates([]);
+  }, [pendingDuplicates, state.files, syncSingleFile]);
+
+  /**
+   * 取消覆蓋，關閉對話框
+   */
+  const cancelOverwriteDuplicates = useCallback(() => {
+    setShowDuplicateDialog(false);
+    setPendingDuplicates([]);
+  }, []);
 
   // 計算統計資料
   const completedFiles = state.files.filter(f => f.status === 'completed');
@@ -478,6 +586,9 @@ export function useMbomImport() {
     syncedCount,
     totalItems,
     totalMolds,
+    // 重複確認對話框相關
+    pendingDuplicates,
+    showDuplicateDialog,
     addFiles,
     processAllFiles,
     removeFile,
@@ -489,5 +600,7 @@ export function useMbomImport() {
     setAutoOverwrite,
     syncSingleFile,
     syncAllFiles,
+    confirmOverwriteDuplicates,
+    cancelOverwriteDuplicates,
   };
 }
