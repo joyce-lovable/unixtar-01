@@ -334,6 +334,36 @@ export function useMbomImport() {
   };
 
   /**
+   * 取得或建立群組 ID
+   */
+  const getOrCreateGroupId = async (customerPartName: string): Promise<number> => {
+    // 先查詢是否已有該客戶料號品名的群組
+    const { data: existing } = await supabase
+      .from('mbom_groups')
+      .select('group_id')
+      .eq('customer_part_name', customerPartName)
+      .maybeSingle();
+
+    if (existing) {
+      return existing.group_id;
+    }
+
+    // 如果沒有，建立新的群組
+    const { data: newGroup, error } = await supabase
+      .from('mbom_groups')
+      .insert({ customer_part_name: customerPartName })
+      .select('group_id')
+      .single();
+
+    if (error) {
+      console.error('建立群組失敗:', error);
+      throw error;
+    }
+
+    return newGroup.group_id;
+  };
+
+  /**
    * 同步單一檔案到 Supabase
    */
   const syncSingleFile = useCallback(async (fileId: string, overwrite: boolean = false) => {
@@ -363,11 +393,20 @@ export function useMbomImport() {
     try {
       const fileName = file.name;
 
-      // 如果需要覆蓋，先刪除該客戶料號品名的舊資料
+      // 取得或建立群組 ID
+      const groupId = customerPartName ? await getOrCreateGroupId(customerPartName) : null;
+
+      // 如果需要覆蓋，先刪除該客戶料號品名的舊資料，並重置下載狀態
       if (overwrite && customerPartName) {
         await supabase
           .from('mbom_results')
           .delete()
+          .eq('customer_part_name', customerPartName);
+        
+        // 重置該群組的下載狀態
+        await supabase
+          .from('mbom_groups')
+          .update({ downloaded: false })
           .eq('customer_part_name', customerPartName);
       }
 
@@ -386,6 +425,7 @@ export function useMbomImport() {
         material_quality: item.materialQuality,
         remark: item.remark || '',
         source: item.source,
+        group_id: groupId,
       }));
 
       const { error } = await supabase
@@ -468,11 +508,20 @@ export function useMbomImport() {
         const fileName = file.name;
         const customerPartName = file.customerPartName;
 
+        // 取得或建立群組 ID
+        const groupId = customerPartName ? await getOrCreateGroupId(customerPartName) : null;
+
         // 如果需要覆蓋，先刪除該客戶料號品名的舊資料
         if ((state.autoOverwrite || overwrite) && customerPartName) {
           await supabase
             .from('mbom_results')
             .delete()
+            .eq('customer_part_name', customerPartName);
+          
+          // 重置該群組的下載狀態
+          await supabase
+            .from('mbom_groups')
+            .update({ downloaded: false })
             .eq('customer_part_name', customerPartName);
         }
 
@@ -490,6 +539,7 @@ export function useMbomImport() {
           material_quality: item.materialQuality,
           remark: item.remark || '',
           source: item.source,
+          group_id: groupId,
         }));
 
         const { error } = await supabase
