@@ -118,11 +118,9 @@ const MoldDataTable = () => {
     }
 
     const wsData = dataToExport.map(r => ({
-      '檔案名稱': r.file_name,
       '品名': r.part_name,
       '模具編號': r.mold_number,
-      '序號': r.seq_number,
-      '建立時間': new Date(r.created_at).toLocaleString('zh-TW'),
+      '檔案名稱': r.file_name,
     }));
 
     const ws = XLSX.utils.json_to_sheet(wsData);
@@ -173,23 +171,21 @@ const MoldDataTable = () => {
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
-              <TableHead>檔案名稱</TableHead>
               <TableHead>品名</TableHead>
               <TableHead>模具編號</TableHead>
-              <TableHead className="w-20">序號</TableHead>
-              <TableHead className="w-40">建立時間</TableHead>
+              <TableHead>檔案名稱</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                   載入中...
                 </TableCell>
               </TableRow>
             ) : records.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                   {searchTerm ? '找不到符合的資料' : '尚無資料'}
                 </TableCell>
               </TableRow>
@@ -205,13 +201,9 @@ const MoldDataTable = () => {
                       onCheckedChange={(checked) => handleSelectOne(record.id, !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-sm">{record.file_name}</TableCell>
                   <TableCell>{record.part_name}</TableCell>
                   <TableCell className="font-mono">{record.mold_number}</TableCell>
-                  <TableCell>{record.seq_number}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {new Date(record.created_at).toLocaleString('zh-TW')}
-                  </TableCell>
+                  <TableCell className="font-mono text-sm">{record.file_name}</TableCell>
                 </TableRow>
               ))
             )}
