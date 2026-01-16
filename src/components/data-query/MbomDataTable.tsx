@@ -189,8 +189,8 @@ const MbomDataTable = () => {
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <Table>
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <Table className="min-w-[1400px]">
           <TableHeader>
             <TableRow className="bg-emerald-50 dark:bg-emerald-950/30">
               <TableHead className="w-12">
@@ -199,17 +199,17 @@ const MbomDataTable = () => {
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
-              <TableHead>客戶料號品名</TableHead>
-              <TableHead>主件料號</TableHead>
-              <TableHead>元件料號</TableHead>
-              <TableHead className="w-20">CAD項次</TableHead>
-              <TableHead className="w-20">用量</TableHead>
-              <TableHead className="w-16">單位</TableHead>
-              <TableHead className="w-24">用料類別</TableHead>
-              <TableHead className="w-24">生產製程</TableHead>
-              <TableHead className="w-24">用料品質</TableHead>
-              <TableHead className="w-24">有無替代料</TableHead>
-              <TableHead>備註</TableHead>
+              <TableHead className="min-w-[200px] whitespace-nowrap">客戶料號品名</TableHead>
+              <TableHead className="min-w-[150px] whitespace-nowrap">主件料號</TableHead>
+              <TableHead className="min-w-[150px] whitespace-nowrap">元件料號</TableHead>
+              <TableHead className="w-20 whitespace-nowrap">CAD項次</TableHead>
+              <TableHead className="w-16 whitespace-nowrap">用量</TableHead>
+              <TableHead className="w-14 whitespace-nowrap">單位</TableHead>
+              <TableHead className="w-24 whitespace-nowrap">用料類別</TableHead>
+              <TableHead className="w-24 whitespace-nowrap">生產製程</TableHead>
+              <TableHead className="w-24 whitespace-nowrap">用料品質</TableHead>
+              <TableHead className="w-28 whitespace-nowrap">有無替代料</TableHead>
+              <TableHead className="min-w-[120px]">備註</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -237,9 +237,9 @@ const MbomDataTable = () => {
                       onCheckedChange={(checked) => handleSelectOne(record.id, !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="font-medium">{record.customer_part_name}</TableCell>
-                  <TableCell className="font-mono text-sm">{record.main_part_number}</TableCell>
-                  <TableCell className="font-mono text-sm">{record.component_part_number}</TableCell>
+                  <TableCell className="font-medium whitespace-nowrap">{record.customer_part_name}</TableCell>
+                  <TableCell className="font-mono text-sm whitespace-nowrap">{record.main_part_number}</TableCell>
+                  <TableCell className="font-mono text-sm whitespace-nowrap">{record.component_part_number}</TableCell>
                   <TableCell>{record.cad_sequence}</TableCell>
                   <TableCell>{record.quantity}</TableCell>
                   <TableCell>{record.unit}</TableCell>
