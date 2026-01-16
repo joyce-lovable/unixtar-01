@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Download, FileText, CheckCircle, ChevronDown, ChevronUp, Copy, Check, Clock, RefreshCw, RotateCw, Image, Database, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,7 +60,8 @@ export const BatchOCRResults = ({ files, autoOverwrite = false }: BatchOCRResult
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasSynced, setHasSynced] = useState(false);
-  const syncAttemptedRef = useRef(false);
+  // 追蹤已同步的檔案名稱，讓重試成功的檔案也能自動同步
+  const [syncedFileNames, setSyncedFileNames] = useState<Set<string>>(new Set());
   
   // 覆蓋功能狀態（autoOverwrite 現在從 props 傳入）
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
@@ -244,6 +245,14 @@ export const BatchOCRResults = ({ files, autoOverwrite = false }: BatchOCRResult
       throw error;
     }
 
+    // 同步成功後，將檔案名稱加入已同步清單
+    const syncedNames = [...new Set(data.map(d => d.file_name))];
+    setSyncedFileNames(prev => {
+      const newSet = new Set(prev);
+      syncedNames.forEach(name => newSet.add(name));
+      return newSet;
+    });
+
     const message = overwrittenCount > 0
       ? `已將 ${data.length} 筆資料寫入資料庫（覆蓋 ${overwrittenCount} 個檔案）`
       : `已將 ${data.length} 筆資料寫入資料庫`;
@@ -418,28 +427,26 @@ export const BatchOCRResults = ({ files, autoOverwrite = false }: BatchOCRResult
   // 計算處理中的檔案
   const processingFiles = files.filter(f => f.status === 'processing' || f.status === 'pending');
 
-  // 自動同步：當處理完成且有資料時自動觸發
+  // 自動同步：當有新完成的檔案（包括重試成功的）且沒有正在處理的檔案時自動觸發
   useEffect(() => {
+    // 找出尚未同步的已完成檔案
+    const unSyncedFiles = completedFiles.filter(f => !syncedFileNames.has(f.name));
+
     const shouldAutoSync = 
-      processingFiles.length === 0 && 
-      completedFiles.length > 0 && 
-      !hasSynced && 
-      !isSyncing &&
-      !syncAttemptedRef.current;
+      processingFiles.length === 0 &&   // 沒有正在處理的檔案
+      unSyncedFiles.length > 0 &&       // 有未同步的已完成檔案
+      !isSyncing;                        // 沒有正在同步中
 
     if (shouldAutoSync) {
-      syncAttemptedRef.current = true;
-      handleSyncToSupabase().then(() => {
-        setHasSynced(true);
-      });
+      handleSyncToSupabase();
     }
-  }, [processingFiles.length, completedFiles.length, hasSynced, isSyncing]);
+  }, [processingFiles.length, completedFiles, syncedFileNames, isSyncing]);
 
   // 當 files 清空時重置同步狀態
   useEffect(() => {
     if (files.length === 0) {
       setHasSynced(false);
-      syncAttemptedRef.current = false;
+      setSyncedFileNames(new Set());
     }
   }, [files.length]);
 
