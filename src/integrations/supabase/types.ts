@@ -14,6 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
+      mbom_results: {
+        Row: {
+          cad_sequence: number
+          component_part_number: string
+          created_at: string
+          customer_part_name: string
+          file_name: string
+          has_substitute: string
+          id: string
+          main_part_number: string
+          material_category: string
+          material_quality: string
+          production_process: string
+          quantity: number
+          remark: string | null
+          source: string
+          unit: string
+        }
+        Insert: {
+          cad_sequence: number
+          component_part_number: string
+          created_at?: string
+          customer_part_name: string
+          file_name: string
+          has_substitute?: string
+          id?: string
+          main_part_number: string
+          material_category: string
+          material_quality?: string
+          production_process?: string
+          quantity: number
+          remark?: string | null
+          source?: string
+          unit: string
+        }
+        Update: {
+          cad_sequence?: number
+          component_part_number?: string
+          created_at?: string
+          customer_part_name?: string
+          file_name?: string
+          has_substitute?: string
+          id?: string
+          main_part_number?: string
+          material_category?: string
+          material_quality?: string
+          production_process?: string
+          quantity?: number
+          remark?: string | null
+          source?: string
+          unit?: string
+        }
+        Relationships: []
+      }
       mold_ocr_results: {
         Row: {
           created_at: string

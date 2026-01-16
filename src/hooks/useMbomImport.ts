@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { 
   parseMbomTxt, 
   assembleMbomData, 
@@ -21,21 +22,26 @@ export interface BatchMbomFile {
   mainPartNumber?: string;
   customerPartName?: string;
   moldCount?: number;
+  synced?: boolean;
 }
 
 export interface MbomImportState {
   files: BatchMbomFile[];
   isProcessing: boolean;
+  isSyncing: boolean;
   currentProcessingIndex: number;
   selectedFileId: string | null;
+  autoOverwrite: boolean;
 }
 
 export function useMbomImport() {
   const [state, setState] = useState<MbomImportState>({
     files: [],
     isProcessing: false,
+    isSyncing: false,
     currentProcessingIndex: -1,
     selectedFileId: null,
+    autoOverwrite: false,
   });
 
   /**
@@ -198,8 +204,10 @@ export function useMbomImport() {
     setState({
       files: [],
       isProcessing: false,
+      isSyncing: false,
       currentProcessingIndex: -1,
       selectedFileId: null,
+      autoOverwrite: false,
     });
   }, []);
 
@@ -290,11 +298,164 @@ export function useMbomImport() {
     XLSX.writeFile(wb, `MBOM_批次匯出_分頁.xlsx`);
   }, [state.files]);
 
+  /**
+   * 設定自動覆蓋選項
+   */
+  const setAutoOverwrite = useCallback((value: boolean) => {
+    setState(prev => ({ ...prev, autoOverwrite: value }));
+  }, []);
+
+  /**
+   * 同步單一檔案到 Supabase
+   */
+  const syncSingleFile = useCallback(async (fileId: string, overwrite: boolean = false) => {
+    const file = state.files.find(f => f.id === fileId);
+    if (!file?.parsedData || file.parsedData.length === 0) return;
+
+    setState(prev => ({ ...prev, isSyncing: true }));
+
+    try {
+      const fileName = file.name;
+
+      // 如果需要覆蓋，先刪除該檔案的舊資料
+      if (overwrite) {
+        await supabase
+          .from('mbom_results')
+          .delete()
+          .eq('file_name', fileName);
+      }
+
+      // 準備插入資料
+      const insertData = file.parsedData.map(item => ({
+        file_name: fileName,
+        customer_part_name: item.customerPartName,
+        main_part_number: item.mainPartNumber,
+        production_process: item.productionProcess,
+        cad_sequence: item.cadSequence,
+        component_part_number: item.componentPartNumber,
+        material_category: item.materialCategory,
+        quantity: item.quantity,
+        unit: item.unit,
+        has_substitute: item.hasSubstitute,
+        material_quality: item.materialQuality,
+        remark: item.remark || '',
+        source: item.source,
+      }));
+
+      const { error } = await supabase
+        .from('mbom_results')
+        .insert(insertData);
+
+      if (error) {
+        if (error.code === '23505') {
+          // 唯一鍵衝突
+          toast.error(`同步失敗：${fileName} 資料已存在，請勾選「遇重複自動覆蓋」重試`);
+        } else {
+          throw error;
+        }
+      } else {
+        // 更新檔案狀態為已同步
+        setState(prev => ({
+          ...prev,
+          files: prev.files.map(f => 
+            f.id === fileId ? { ...f, synced: true } : f
+          ),
+        }));
+        toast.success(`${fileName} 已成功同步至資料庫`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '同步失敗';
+      toast.error(`同步錯誤：${errorMessage}`);
+    } finally {
+      setState(prev => ({ ...prev, isSyncing: false }));
+    }
+  }, [state.files]);
+
+  /**
+   * 同步所有已完成的檔案到 Supabase
+   */
+  const syncAllFiles = useCallback(async () => {
+    const completedFiles = state.files.filter(f => f.status === 'completed' && f.parsedData && !f.synced);
+    if (completedFiles.length === 0) {
+      toast.info('沒有需要同步的檔案');
+      return;
+    }
+
+    setState(prev => ({ ...prev, isSyncing: true }));
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const file of completedFiles) {
+      try {
+        const fileName = file.name;
+
+        // 如果自動覆蓋，先刪除舊資料
+        if (state.autoOverwrite) {
+          await supabase
+            .from('mbom_results')
+            .delete()
+            .eq('file_name', fileName);
+        }
+
+        const insertData = file.parsedData!.map(item => ({
+          file_name: fileName,
+          customer_part_name: item.customerPartName,
+          main_part_number: item.mainPartNumber,
+          production_process: item.productionProcess,
+          cad_sequence: item.cadSequence,
+          component_part_number: item.componentPartNumber,
+          material_category: item.materialCategory,
+          quantity: item.quantity,
+          unit: item.unit,
+          has_substitute: item.hasSubstitute,
+          material_quality: item.materialQuality,
+          remark: item.remark || '',
+          source: item.source,
+        }));
+
+        const { error } = await supabase
+          .from('mbom_results')
+          .insert(insertData);
+
+        if (error) {
+          if (error.code === '23505') {
+            errorCount++;
+          } else {
+            throw error;
+          }
+        } else {
+          successCount++;
+          setState(prev => ({
+            ...prev,
+            files: prev.files.map(f => 
+              f.id === file.id ? { ...f, synced: true } : f
+            ),
+          }));
+        }
+      } catch (error) {
+        errorCount++;
+        console.error(`同步 ${file.name} 失敗:`, error);
+      }
+    }
+
+    setState(prev => ({ ...prev, isSyncing: false }));
+
+    if (successCount > 0 && errorCount === 0) {
+      toast.success(`成功同步 ${successCount} 個檔案至資料庫`);
+    } else if (successCount > 0 && errorCount > 0) {
+      toast.warning(`同步完成：${successCount} 個成功，${errorCount} 個失敗（可能重複）`);
+    } else {
+      toast.error(`同步失敗：${errorCount} 個檔案發生錯誤，請勾選「遇重複自動覆蓋」重試`);
+    }
+  }, [state.files, state.autoOverwrite]);
+
   // 計算統計資料
   const completedFiles = state.files.filter(f => f.status === 'completed');
   const pendingCount = state.files.filter(f => f.status === 'pending').length;
   const completedCount = completedFiles.length;
   const errorCount = state.files.filter(f => f.status === 'error').length;
+  const syncedCount = state.files.filter(f => f.synced).length;
   const totalItems = completedFiles.reduce((sum, f) => sum + (f.parsedData?.length || 0), 0);
   const totalMolds = completedFiles.reduce((sum, f) => sum + (f.moldCount || 0), 0);
 
@@ -304,12 +465,15 @@ export function useMbomImport() {
   return {
     files: state.files,
     isProcessing: state.isProcessing,
+    isSyncing: state.isSyncing,
+    autoOverwrite: state.autoOverwrite,
     currentProcessingIndex: state.currentProcessingIndex,
     selectedFileId: state.selectedFileId,
     selectedFile,
     pendingCount,
     completedCount,
     errorCount,
+    syncedCount,
     totalItems,
     totalMolds,
     addFiles,
@@ -320,5 +484,8 @@ export function useMbomImport() {
     exportSingleExcel,
     exportAllMerged,
     exportAllSeparate,
+    setAutoOverwrite,
+    syncSingleFile,
+    syncAllFiles,
   };
 }

@@ -1,9 +1,11 @@
 import { motion } from 'framer-motion';
-import { Download, Database, FileSpreadsheet, Package, Wrench, Box, Files, Layers } from 'lucide-react';
+import { Download, Database, FileSpreadsheet, Package, Wrench, Box, Files, Layers, CloudUpload, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -27,10 +29,16 @@ interface MbomResultsProps {
   totalItems: number;
   totalMolds: number;
   completedCount: number;
+  syncedCount: number;
+  isSyncing: boolean;
+  autoOverwrite: boolean;
   onSelectFile: (fileId: string) => void;
   onExportSingle: (fileId: string) => void;
   onExportAllMerged: () => void;
   onExportAllSeparate: () => void;
+  onSetAutoOverwrite: (value: boolean) => void;
+  onSyncSingle: (fileId: string, overwrite: boolean) => void;
+  onSyncAll: () => void;
 }
 
 export function MbomResults({
@@ -39,12 +47,19 @@ export function MbomResults({
   totalItems,
   totalMolds,
   completedCount,
+  syncedCount,
+  isSyncing,
+  autoOverwrite,
   onSelectFile,
   onExportSingle,
   onExportAllMerged,
   onExportAllSeparate,
+  onSetAutoOverwrite,
+  onSyncSingle,
+  onSyncAll,
 }: MbomResultsProps) {
   const completedFiles = files.filter(f => f.status === 'completed' && f.parsedData);
+  const unsyncedCount = completedFiles.filter(f => !f.synced).length;
   
   if (completedFiles.length === 0) return null;
 
@@ -79,11 +94,18 @@ export function MbomResults({
               <Wrench className="w-3 h-3 mr-1" />
               {totalMolds} 個模具
             </Badge>
+            {syncedCount > 0 && (
+              <Badge variant="outline" className="bg-violet-500/10 text-violet-600 border-violet-500/30">
+                <Database className="w-3 h-3 mr-1" />
+                {syncedCount} 已同步
+              </Badge>
+            )}
           </div>
         </div>
 
-        {/* 匯出按鈕 */}
-        <div className="flex flex-wrap gap-2">
+        {/* 匯出與同步按鈕 */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Excel 匯出 */}
           {completedFiles.length > 1 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -114,6 +136,35 @@ export function MbomResults({
               下載當前檔案
             </Button>
           )}
+
+          {/* 分隔線 */}
+          <div className="h-8 w-px bg-border hidden sm:block" />
+
+          {/* 同步到資料庫 */}
+          <Button
+            onClick={onSyncAll}
+            disabled={isSyncing || unsyncedCount === 0}
+            className="bg-violet-600 hover:bg-violet-700 text-white"
+          >
+            {isSyncing ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <CloudUpload className="w-4 h-4 mr-2" />
+            )}
+            同步至資料庫 {unsyncedCount > 0 && `(${unsyncedCount})`}
+          </Button>
+
+          {/* 自動覆蓋選項 */}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="autoOverwrite"
+              checked={autoOverwrite}
+              onCheckedChange={(checked) => onSetAutoOverwrite(checked === true)}
+            />
+            <Label htmlFor="autoOverwrite" className="text-sm text-muted-foreground cursor-pointer">
+              遇重複自動覆蓋
+            </Label>
+          </div>
         </div>
       </div>
 
@@ -133,6 +184,9 @@ export function MbomResults({
                     <Badge variant="secondary" className="ml-2 bg-white/20 text-inherit">
                       {file.parsedData?.length || 0}
                     </Badge>
+                    {file.synced && (
+                      <CheckCircle2 className="w-3 h-3 ml-1 text-green-300" />
+                    )}
                   </TabsTrigger>
                 ))}
               </TabsList>
