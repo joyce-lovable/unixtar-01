@@ -435,7 +435,12 @@ const Index = () => {
           {functionMode !== 'mbom' && activeTab === 'local' && completedCount > 0 && (
             <div className="mb-8">
               {functionMode === 'mold' && (
-                <BatchOCRResults files={moldOCR.files} autoOverwrite={moldAutoOverwrite} />
+                <BatchOCRResults 
+                  files={moldOCR.files} 
+                  autoOverwrite={moldAutoOverwrite}
+                  syncedFileNames={moldOCR.syncedFileNames}
+                  markFilesAsSynced={moldOCR.markFilesAsSynced}
+                />
               )}
               {functionMode === 'sop' && (
                 <MakeWebhookResults 
@@ -458,12 +463,16 @@ const Index = () => {
           {activeTab === 'drive' && driveFiles.filter(f => f.status === 'completed').length > 0 && (
             <div className="mb-8">
               {functionMode === 'mold' ? (
-                <BatchOCRResults files={driveFiles.filter(f => f.status === 'completed').map(f => ({
-                  id: f.id,
-                  name: f.name,
-                  status: 'completed' as const,
-                  result: f.result ? { text: f.result.text, confidence: f.result.confidence } : undefined,
-                }))} />
+                <BatchOCRResults 
+                  files={driveFiles.filter(f => f.status === 'completed').map(f => ({
+                    id: f.id,
+                    name: f.name,
+                    status: 'completed' as const,
+                    result: f.result ? { text: f.result.text, confidence: f.result.confidence } : undefined,
+                  }))}
+                  syncedFileNames={moldOCR.syncedFileNames}
+                  markFilesAsSynced={moldOCR.markFilesAsSynced}
+                />
               ) : (
                 <MakeWebhookResults 
                   files={driveFiles.filter(f => f.status === 'completed').map(f => ({

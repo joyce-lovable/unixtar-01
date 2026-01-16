@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadPdfjs } from '@/lib/pdfjs';
 
@@ -39,9 +39,21 @@ export const useBatchOCR = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentProcessingIndex, setCurrentProcessingIndex] = useState<number>(-1);
   const filesRef = useRef<BatchOCRFile[]>([]);
+  
+  // 追蹤已同步的檔案名稱（提升到 hook 層級，避免切換模式時狀態遺失）
+  const [syncedFileNames, setSyncedFileNames] = useState<Set<string>>(new Set());
 
   // Keep ref in sync with state
   filesRef.current = files;
+  
+  // 標記檔案為已同步
+  const markFilesAsSynced = useCallback((fileNames: string[]) => {
+    setSyncedFileNames(prev => {
+      const newSet = new Set(prev);
+      fileNames.forEach(name => newSet.add(name));
+      return newSet;
+    });
+  }, []);
 
   const convertFileToBase64 = async (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -384,6 +396,7 @@ export const useBatchOCR = () => {
   const clearAll = useCallback(() => {
     setFiles([]);
     setCurrentProcessingIndex(-1);
+    setSyncedFileNames(new Set()); // 清空時也重置已同步清單
   }, []);
 
   const completedCount = files.filter(f => f.status === 'completed').length;
@@ -401,5 +414,8 @@ export const useBatchOCR = () => {
     completedCount,
     errorCount,
     totalFiles: files.length,
+    // 同步狀態追蹤（提升到 hook 層級）
+    syncedFileNames,
+    markFilesAsSynced,
   };
 };
