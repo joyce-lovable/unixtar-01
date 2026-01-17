@@ -385,25 +385,34 @@ export function useMbomImport() {
   };
 
   /**
-   * 同步單一檔案到 Supabase
+   * 同步單一檔案到 Supabase（支援多組成品）
    */
   const syncSingleFile = useCallback(async (fileId: string, overwrite: boolean = false) => {
     const file = state.files.find(f => f.id === fileId);
     if (!file?.parsedData || file.parsedData.length === 0) return;
 
-    const customerPartName = file.customerPartName;
+    // 提取該檔案內所有唯一的 customerPartName
+    const uniqueCustomerPartNames = [...new Set(
+      file.parsedData.map(item => item.customerPartName)
+    )];
     
-    // 如果不是覆蓋模式，先檢查是否有重複
-    if (!overwrite && customerPartName) {
-      const existingCount = await checkDuplicate(customerPartName);
-      if (existingCount > 0) {
-        // 設定待確認的重複項目並顯示對話框
-        setPendingDuplicates([{
-          fileId: file.id,
-          fileName: file.name,
-          customerPartName,
-          existingCount,
-        }]);
+    // 如果不是覆蓋模式，先檢查所有品名是否有重複
+    if (!overwrite) {
+      const duplicates: DuplicateInfo[] = [];
+      for (const partName of uniqueCustomerPartNames) {
+        const existingCount = await checkDuplicate(partName);
+        if (existingCount > 0) {
+          duplicates.push({
+            fileId: file.id,
+            fileName: file.name,
+            customerPartName: partName,
+            existingCount,
+          });
+        }
+      }
+      
+      if (duplicates.length > 0) {
+        setPendingDuplicates(duplicates);
         setShowDuplicateDialog(true);
         return;
       }
@@ -414,24 +423,27 @@ export function useMbomImport() {
     try {
       const fileName = file.name;
 
-      // 取得或建立群組 ID
-      const groupId = customerPartName ? await getOrCreateGroupId(customerPartName) : null;
-
-      // 如果需要覆蓋，先刪除該客戶料號品名的舊資料，並重置下載狀態
-      if (overwrite && customerPartName) {
-        await supabase
-          .from('mbom_results')
-          .delete()
-          .eq('customer_part_name', customerPartName);
+      // 為每個 customerPartName 取得或建立 groupId
+      const groupIdMap = new Map<string, number>();
+      for (const partName of uniqueCustomerPartNames) {
+        const groupId = await getOrCreateGroupId(partName);
+        groupIdMap.set(partName, groupId);
         
-        // 重置該群組的下載狀態
-        await supabase
-          .from('mbom_groups')
-          .update({ downloaded: false })
-          .eq('customer_part_name', customerPartName);
+        // 如果需要覆蓋，刪除該品名的舊資料並重置下載狀態
+        if (overwrite) {
+          await supabase
+            .from('mbom_results')
+            .delete()
+            .eq('customer_part_name', partName);
+          
+          await supabase
+            .from('mbom_groups')
+            .update({ downloaded: false })
+            .eq('customer_part_name', partName);
+        }
       }
 
-      // 準備插入資料
+      // 準備插入資料，每筆使用對應的 groupId
       const insertData = file.parsedData.map(item => ({
         file_name: fileName,
         customer_part_name: item.customerPartName,
@@ -446,7 +458,7 @@ export function useMbomImport() {
         material_quality: item.materialQuality,
         remark: item.remark || '',
         source: item.source,
-        group_id: groupId,
+        group_id: groupIdMap.get(item.customerPartName) || null,
         sort_order: item.sortOrder,
       }));
 
@@ -467,7 +479,7 @@ export function useMbomImport() {
             f.id === fileId ? { ...f, synced: true } : f
           ),
         }));
-        toast.success(`${fileName} 已成功同步至資料庫`);
+        toast.success(`${fileName} 已成功同步至資料庫（${uniqueCustomerPartNames.length} 組成品）`);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '同步失敗';
@@ -478,7 +490,7 @@ export function useMbomImport() {
   }, [state.files]);
 
   /**
-   * 同步所有已完成的檔案到 Supabase
+   * 同步所有已完成的檔案到 Supabase（支援多組成品）
    */
   const syncAllFiles = useCallback(async () => {
     const completedFiles = state.files.filter(f => f.status === 'completed' && f.parsedData && !f.synced);
@@ -487,18 +499,25 @@ export function useMbomImport() {
       return;
     }
 
-    // 如果沒有勾選自動覆蓋，先檢查所有檔案是否有重複
+    // 如果沒有勾選自動覆蓋，先檢查所有檔案的所有品名是否有重複
     if (!state.autoOverwrite) {
       const duplicates: DuplicateInfo[] = [];
       
       for (const file of completedFiles) {
-        if (file.customerPartName) {
-          const existingCount = await checkDuplicate(file.customerPartName);
+        if (!file.parsedData) continue;
+        
+        // 提取該檔案內所有唯一的 customerPartName
+        const uniquePartNames = [...new Set(
+          file.parsedData.map(item => item.customerPartName)
+        )];
+        
+        for (const partName of uniquePartNames) {
+          const existingCount = await checkDuplicate(partName);
           if (existingCount > 0) {
             duplicates.push({
               fileId: file.id,
               fileName: file.name,
-              customerPartName: file.customerPartName,
+              customerPartName: partName,
               existingCount,
             });
           }
@@ -517,36 +536,46 @@ export function useMbomImport() {
   }, [state.files, state.autoOverwrite]);
 
   /**
-   * 實際執行批次同步
+   * 實際執行批次同步（支援多組成品）
    */
   const performSyncAllFiles = async (filesToSync: BatchMbomFile[], overwrite: boolean = false) => {
     setState(prev => ({ ...prev, isSyncing: true }));
 
     let successCount = 0;
     let errorCount = 0;
+    let totalProductCount = 0;
 
     for (const file of filesToSync) {
       try {
         const fileName = file.name;
-        const customerPartName = file.customerPartName;
+        
+        // 提取該檔案內所有唯一的 customerPartName
+        const uniquePartNames = [...new Set(
+          file.parsedData!.map(item => item.customerPartName)
+        )];
+        totalProductCount += uniquePartNames.length;
 
-        // 取得或建立群組 ID
-        const groupId = customerPartName ? await getOrCreateGroupId(customerPartName) : null;
-
-        // 如果需要覆蓋，先刪除該客戶料號品名的舊資料
-        if ((state.autoOverwrite || overwrite) && customerPartName) {
-          await supabase
-            .from('mbom_results')
-            .delete()
-            .eq('customer_part_name', customerPartName);
+        // 為每個 customerPartName 取得或建立 groupId
+        const groupIdMap = new Map<string, number>();
+        for (const partName of uniquePartNames) {
+          const groupId = await getOrCreateGroupId(partName);
+          groupIdMap.set(partName, groupId);
           
-          // 重置該群組的下載狀態
-          await supabase
-            .from('mbom_groups')
-            .update({ downloaded: false })
-            .eq('customer_part_name', customerPartName);
+          // 如果需要覆蓋，刪除該品名的舊資料並重置下載狀態
+          if (state.autoOverwrite || overwrite) {
+            await supabase
+              .from('mbom_results')
+              .delete()
+              .eq('customer_part_name', partName);
+            
+            await supabase
+              .from('mbom_groups')
+              .update({ downloaded: false })
+              .eq('customer_part_name', partName);
+          }
         }
 
+        // 準備插入資料，每筆使用對應的 groupId
         const insertData = file.parsedData!.map(item => ({
           file_name: fileName,
           customer_part_name: item.customerPartName,
@@ -561,7 +590,8 @@ export function useMbomImport() {
           material_quality: item.materialQuality,
           remark: item.remark || '',
           source: item.source,
-          group_id: groupId,
+          group_id: groupIdMap.get(item.customerPartName) || null,
+          sort_order: item.sortOrder,
         }));
 
         const { error } = await supabase
@@ -592,7 +622,7 @@ export function useMbomImport() {
     setState(prev => ({ ...prev, isSyncing: false }));
 
     if (successCount > 0 && errorCount === 0) {
-      toast.success(`成功同步 ${successCount} 個檔案至資料庫`);
+      toast.success(`成功同步 ${successCount} 個檔案（共 ${totalProductCount} 組成品）至資料庫`);
     } else if (successCount > 0 && errorCount > 0) {
       toast.warning(`同步完成：${successCount} 個成功，${errorCount} 個失敗（可能重複）`);
     } else if (errorCount > 0) {
