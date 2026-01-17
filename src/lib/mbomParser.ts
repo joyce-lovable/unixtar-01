@@ -279,7 +279,7 @@ export function assembleMbomData(
   
   // 1. 成品區段的零件 (source: 'txt')
   for (const item of mainItems) {
-    const hasSubstitute = item.remark.includes('可替代料號') ? 'Y' : 'N';
+    const hasSubstitute = item.remark.includes('替代料') ? 'Y' : 'N';
     
     result.push({
       customerPartName,
@@ -325,7 +325,7 @@ export function assembleMbomData(
     let subCadSequence = 1;
     
     for (const item of subAssembly.items) {
-      const hasSubstitute = item.remark.includes('可替代料號') ? 'Y' : 'N';
+      const hasSubstitute = item.remark.includes('替代料') ? 'Y' : 'N';
       
       result.push({
         customerPartName,                    // 品名維持不變
