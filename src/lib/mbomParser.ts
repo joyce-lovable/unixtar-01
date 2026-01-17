@@ -96,59 +96,38 @@ export function formatQuantity(value: number): number {
 }
 
 /**
- * 解析 TXT 檔案內容
+ * 解析 TXT 檔案內容，支援單一檔案包含多組成品
  * 
  * 解析規則：
- * 1. 同一組「成品料號 + 品名」視為一組
+ * 1. 每次出現新的「成品料號 + 品名」組合視為新的一組
  * 2. 第一個區段（料號 = 成品料號）為成品資料
  * 3. 料號不同於成品料號的區段為半成品
  * 4. 項次重新排列（從小數字開始）表示切換到新的半成品
  * 5. 項次 0 為半成品標記行，忽略不處理
  */
-export function parseMbomTxt(content: string): ParsedProduct {
+export function parseMbomTxt(content: string): ParsedProduct[] {
   const lines = content.split('\n');
+  const products: ParsedProduct[] = [];
   
-  // 1. 擷取成品料號和品名（從文件開頭的 header）
-  let mainPartNumber = '';
-  let customerPartName = '';
-  
-  for (const line of lines) {
-    // 尋找成品料號
-    const mainMatch = line.match(/成品料號\s*:\s*(\S+)/);
-    if (mainMatch && !mainPartNumber) {
-      mainPartNumber = mainMatch[1];
-    }
-    
-    // 尋找品名
-    const nameMatch = line.match(/品名\s*:\s*(\S+)/);
-    if (nameMatch && !customerPartName) {
-      customerPartName = nameMatch[1];
-    }
-    
-    if (mainPartNumber && customerPartName) break;
-  }
-  
-  // 2. 追蹤當前區段
-  let currentSectionPartNumber = '';  // 當前區段的「料號」
+  // 當前組別追蹤
+  let currentMainPartNumber = '';
+  let currentCustomerPartName = '';
+  let currentSectionPartNumber = '';
   let currentItems: RawItem[] = [];
   let lastSequence = -1;
   let currentRemark = '';
   let lastItem: RawItem | null = null;
-  
-  // 3. 儲存結果
-  const mainItems: RawItem[] = [];
-  const subAssemblies: SubAssembly[] = [];
+  let mainItems: RawItem[] = [];
+  let subAssemblies: SubAssembly[] = [];
   let subAssemblyOrder = 0;
   
-  // 用於保存前一個區段的函數
+  // 保存當前區段
   const saveCurrentSection = () => {
     if (currentItems.length === 0) return;
     
-    if (currentSectionPartNumber === mainPartNumber || currentSectionPartNumber === '') {
-      // 成品區段
+    if (currentSectionPartNumber === currentMainPartNumber || currentSectionPartNumber === '') {
       mainItems.push(...currentItems);
     } else {
-      // 半成品區段
       subAssemblies.push({
         subPartNumber: currentSectionPartNumber,
         items: [...currentItems],
@@ -160,16 +139,55 @@ export function parseMbomTxt(content: string): ParsedProduct {
     lastItem = null;
   };
   
+  // 保存當前產品組
+  const saveCurrentProduct = () => {
+    saveCurrentSection();
+    
+    if (currentMainPartNumber && currentCustomerPartName && (mainItems.length > 0 || subAssemblies.length > 0)) {
+      products.push({
+        mainPartNumber: currentMainPartNumber,
+        customerPartName: currentCustomerPartName,
+        mainItems: [...mainItems],
+        subAssemblies: [...subAssemblies],
+      });
+    }
+    
+    // 重置所有追蹤變數
+    mainItems = [];
+    subAssemblies = [];
+    subAssemblyOrder = 0;
+    currentSectionPartNumber = '';
+    currentItems = [];
+    lastSequence = -1;
+    lastItem = null;
+    currentRemark = '';
+  };
+  
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
+    // 偵測產品 header：成品料號 : XXX    品名 : YYY
+    const mainMatch = line.match(/成品料號\s*:\s*(\S+)/);
+    const nameMatch = line.match(/品名\s*:\s*(\S+)/);
+    
+    if (mainMatch && nameMatch) {
+      const newMainPartNumber = mainMatch[1];
+      const newCustomerPartName = nameMatch[1];
+      
+      // 如果成品料號或品名改變了，保存前一組並開始新組
+      if (newMainPartNumber !== currentMainPartNumber || newCustomerPartName !== currentCustomerPartName) {
+        saveCurrentProduct();
+        currentMainPartNumber = newMainPartNumber;
+        currentCustomerPartName = newCustomerPartName;
+      }
+      continue;
+    }
+    
     // 偵測區段 header 行：│料號:XXX
-    // 這可能是成品區段或半成品區段
     const sectionHeaderMatch = line.match(/│料號:(\S+)\s+│/);
     if (sectionHeaderMatch) {
       const headerPartNumber = sectionHeaderMatch[1];
       
-      // 如果料號改變，保存前一個區段並開始新區段
       if (headerPartNumber !== currentSectionPartNumber) {
         saveCurrentSection();
         currentSectionPartNumber = headerPartNumber;
@@ -178,10 +196,8 @@ export function parseMbomTxt(content: string): ParsedProduct {
     }
     
     // 解析零件行 (項次|零件料號|用量|單位|...)
-    // 格式: │ 項次│零件料號 │ 用量 │單位 │...
     const itemMatch = line.match(/│\s*(\d+)│(\S+)\s*│\s*([\d./]+)\s*│(\S+)\s*│/);
     if (itemMatch) {
-      // 先保存前一個項目的備註
       if (lastItem && currentRemark) {
         lastItem.remark = currentRemark;
         currentRemark = '';
@@ -195,18 +211,6 @@ export function parseMbomTxt(content: string): ParsedProduct {
       // 項次 0 為半成品標記行，忽略
       if (sequence === 0) {
         continue;
-      }
-      
-      // 偵測項次重新排列：如果項次突然變小（例如從 14 跳到 1）
-      // 表示切換到新的半成品（同一料號下可能有多個半成品區段）
-      // 但要確認我們已經有資料了
-      if (currentItems.length > 0 && sequence <= lastSequence && sequence <= 2) {
-        // 這可能是新的半成品區段開始（項次從 1 或 2 重新開始）
-        // 保存目前區段，但不改變 currentSectionPartNumber
-        // 因為可能還是同一個料號下的不同區段
-        
-        // 注意：這裡不需要保存，因為料號變化時會在上面的邏輯處理
-        // 項次重新排列通常伴隨著料號變化，由 sectionHeaderMatch 處理
       }
       
       const item: RawItem = {
@@ -234,7 +238,7 @@ export function parseMbomTxt(content: string): ParsedProduct {
       continue;
     }
     
-    // 解析獨立的備註行（某些格式）
+    // 解析獨立的備註行
     const remarkLineMatch = line.match(/備註:(.+)/);
     if (remarkLineMatch && lastItem) {
       const remarkText = remarkLineMatch[1].trim();
@@ -244,18 +248,13 @@ export function parseMbomTxt(content: string): ParsedProduct {
     }
   }
   
-  // 保存最後一個區段
+  // 保存最後的備註和產品
   if (lastItem && currentRemark) {
     lastItem.remark = currentRemark;
   }
-  saveCurrentSection();
+  saveCurrentProduct();
   
-  return {
-    mainPartNumber,
-    customerPartName,
-    mainItems,
-    subAssemblies,
-  };
+  return products;
 }
 
 /**

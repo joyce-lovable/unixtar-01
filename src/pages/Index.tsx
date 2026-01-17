@@ -409,6 +409,7 @@ const Index = () => {
                 totalItems={mbomImport.totalItems}
                 totalMolds={mbomImport.totalMolds}
                 totalSubAssemblies={mbomImport.totalSubAssemblies}
+                totalProducts={mbomImport.totalProducts}
                 completedCount={mbomImport.completedCount}
                 syncedCount={mbomImport.syncedCount}
                 isSyncing={mbomImport.isSyncing}
