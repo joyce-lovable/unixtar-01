@@ -23,6 +23,7 @@ export interface BatchMbomFile {
   customerPartName?: string;
   moldCount?: number;
   subAssemblyCount?: number;  // 半成品數量
+  productCount?: number;      // 成品數量（單一 TXT 可能包含多組）
   synced?: boolean;
 }
 
@@ -79,7 +80,7 @@ export function useMbomImport() {
   };
 
   /**
-   * 處理單一 TXT 檔案
+   * 處理單一 TXT 檔案（支援多組成品）
    */
   const processSingleFile = async (file: File): Promise<{
     parsedData: MbomItem[];
@@ -87,23 +88,38 @@ export function useMbomImport() {
     customerPartName: string;
     moldCount: number;
     subAssemblyCount: number;
+    productCount: number;
   }> => {
     const content = await file.text();
-    const parsed = parseMbomTxt(content);
+    const products = parseMbomTxt(content);
     
-    if (!parsed.mainPartNumber || !parsed.customerPartName) {
-      throw new Error('無法從檔案中解析出成品料號或品名');
+    if (products.length === 0) {
+      throw new Error('無法從檔案中解析出任何成品資料');
     }
 
-    const moldData = await fetchMoldData(parsed.customerPartName);
-    const mbomData = assembleMbomData(parsed, moldData);
+    // 合併所有產品的資料
+    const allMbomData: MbomItem[] = [];
+    let totalMoldCount = 0;
+    let totalSubAssemblyCount = 0;
+
+    for (const product of products) {
+      const moldData = await fetchMoldData(product.customerPartName);
+      const mbomData = assembleMbomData(product, moldData);
+      allMbomData.push(...mbomData);
+      totalMoldCount += moldData.length;
+      totalSubAssemblyCount += product.subAssemblies.length;
+    }
+
+    // 使用第一個產品的資訊作為主要顯示（向後相容）
+    const firstProduct = products[0];
 
     return {
-      parsedData: mbomData,
-      mainPartNumber: parsed.mainPartNumber,
-      customerPartName: parsed.customerPartName,
-      moldCount: moldData.length,
-      subAssemblyCount: parsed.subAssemblies.length,
+      parsedData: allMbomData,
+      mainPartNumber: firstProduct.mainPartNumber,
+      customerPartName: firstProduct.customerPartName,
+      moldCount: totalMoldCount,
+      subAssemblyCount: totalSubAssemblyCount,
+      productCount: products.length,
     };
   };
 
@@ -168,6 +184,7 @@ export function useMbomImport() {
               customerPartName: result.customerPartName,
               moldCount: result.moldCount,
               subAssemblyCount: result.subAssemblyCount,
+              productCount: result.productCount,
             } : f
           ),
         }));
@@ -624,6 +641,7 @@ export function useMbomImport() {
   const totalItems = completedFiles.reduce((sum, f) => sum + (f.parsedData?.length || 0), 0);
   const totalMolds = completedFiles.reduce((sum, f) => sum + (f.moldCount || 0), 0);
   const totalSubAssemblies = completedFiles.reduce((sum, f) => sum + (f.subAssemblyCount || 0), 0);
+  const totalProducts = completedFiles.reduce((sum, f) => sum + (f.productCount || 1), 0);
 
   // 取得目前選中的檔案資料
   const selectedFile = state.files.find(f => f.id === state.selectedFileId);
@@ -643,6 +661,7 @@ export function useMbomImport() {
     totalItems,
     totalMolds,
     totalSubAssemblies,
+    totalProducts,
     // 重複確認對話框相關
     pendingDuplicates,
     showDuplicateDialog,

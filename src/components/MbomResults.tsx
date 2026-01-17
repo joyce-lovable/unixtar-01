@@ -29,6 +29,7 @@ interface MbomResultsProps {
   totalItems: number;
   totalMolds: number;
   totalSubAssemblies: number;
+  totalProducts: number;
   completedCount: number;
   syncedCount: number;
   isSyncing: boolean;
@@ -48,6 +49,7 @@ export function MbomResults({
   totalItems,
   totalMolds,
   totalSubAssemblies,
+  totalProducts,
   completedCount,
   syncedCount,
   isSyncing,
@@ -88,6 +90,12 @@ export function MbomResults({
               <Files className="w-3 h-3 mr-1" />
               {completedCount} 個檔案
             </Badge>
+            {totalProducts > completedCount && (
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+                <Package className="w-3 h-3 mr-1" />
+                {totalProducts} 組成品
+              </Badge>
+            )}
             <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30">
               <Layers className="w-3 h-3 mr-1" />
               {totalItems} 筆資料
@@ -181,19 +189,22 @@ export function MbomResults({
             <Tabs value={selectedFile?.id || ''} onValueChange={onSelectFile}>
               <TabsList className="inline-flex h-auto gap-1 bg-transparent p-0">
                 {completedFiles.map((file) => (
-                  <TabsTrigger
-                    key={file.id}
-                    value={file.id}
-                    className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white px-4 py-2 rounded-lg"
-                  >
-                    <span className="truncate max-w-[150px]">{file.mainPartNumber || file.name}</span>
-                    <Badge variant="secondary" className="ml-2 bg-white/20 text-inherit">
-                      {file.parsedData?.length || 0}
-                    </Badge>
-                    {file.synced && (
-                      <CheckCircle2 className="w-3 h-3 ml-1 text-green-300" />
-                    )}
-                  </TabsTrigger>
+                    <TabsTrigger
+                      key={file.id}
+                      value={file.id}
+                      className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white px-4 py-2 rounded-lg"
+                    >
+                      <span className="truncate max-w-[150px]">
+                        {file.mainPartNumber || file.name}
+                        {(file.productCount || 0) > 1 && ` (+${(file.productCount || 1) - 1})`}
+                      </span>
+                      <Badge variant="secondary" className="ml-2 bg-white/20 text-inherit">
+                        {file.parsedData?.length || 0}
+                      </Badge>
+                      {file.synced && (
+                        <CheckCircle2 className="w-3 h-3 ml-1 text-green-300" />
+                      )}
+                    </TabsTrigger>
                 ))}
               </TabsList>
             </Tabs>
