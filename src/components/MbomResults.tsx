@@ -72,6 +72,15 @@ export function MbomResults({
   const moldDataCount = data.filter(d => d.source === 'mold').length;
   const subCount = data.filter(d => d.source === 'sub').length;
 
+  // 從 parsedData 提取唯一的成品清單
+  const uniqueProducts = data.reduce((acc, item) => {
+    const key = `${item.customerPartName}|${item.mainPartNumber}`;
+    if (!acc.some(p => `${p.customerPartName}|${p.mainPartNumber}` === key)) {
+      acc.push({ customerPartName: item.customerPartName, mainPartNumber: item.mainPartNumber });
+    }
+    return acc;
+  }, [] as { customerPartName: string; mainPartNumber: string }[]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -215,25 +224,64 @@ export function MbomResults({
 
       {/* 選中檔案的詳細資訊 */}
       {selectedFile && (
-        <div className="p-4 rounded-xl bg-muted/30 border border-border">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="flex items-center gap-2 text-sm">
-              <Package className="w-4 h-4 text-blue-500" />
-              <span className="text-muted-foreground">成品料號:</span>
-              <span className="font-medium text-foreground">{selectedFile.mainPartNumber}</span>
+        <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-4">
+          {/* 多組成品清單 */}
+          {uniqueProducts.length > 1 ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Package className="w-4 h-4 text-amber-500" />
+                <span>包含 {uniqueProducts.length} 組成品：</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {uniqueProducts.map((product, idx) => (
+                  <div 
+                    key={idx} 
+                    className="flex items-center gap-3 p-2 rounded-lg bg-background/50 border border-border/50"
+                  >
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 shrink-0">
+                      {idx + 1}
+                    </Badge>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-foreground truncate">
+                        {product.mainPartNumber}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {product.customerPartName}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-sm">
-              <Box className="w-4 h-4 text-amber-500" />
-              <span className="text-muted-foreground">品名:</span>
-              <span className="font-medium text-foreground">{selectedFile.customerPartName}</span>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="flex items-center gap-2 text-sm">
+                <Package className="w-4 h-4 text-blue-500" />
+                <span className="text-muted-foreground">成品料號:</span>
+                <span className="font-medium text-foreground">{selectedFile.mainPartNumber}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Box className="w-4 h-4 text-amber-500" />
+                <span className="text-muted-foreground">品名:</span>
+                <span className="font-medium text-foreground">{selectedFile.customerPartName}</span>
+              </div>
             </div>
+          )}
+          
+          {/* 統計資訊 */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2 border-t border-border/50">
             <div className="flex items-center gap-2 text-sm">
               <Wrench className="w-4 h-4 text-teal-500" />
               <span className="text-muted-foreground">模具數量:</span>
               <span className="font-medium text-foreground">{selectedFile.moldCount}</span>
             </div>
             <div className="flex items-center gap-2 text-sm">
-              <Database className="w-4 h-4 text-violet-500" />
+              <Box className="w-4 h-4 text-violet-500" />
+              <span className="text-muted-foreground">半成品:</span>
+              <span className="font-medium text-foreground">{selectedFile.subAssemblyCount}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Database className="w-4 h-4 text-blue-500" />
               <span className="text-muted-foreground">資料來源:</span>
               <span className="font-medium text-foreground">
                 TXT({txtCount}) + 模具({moldDataCount}) + 半成品({subCount})
