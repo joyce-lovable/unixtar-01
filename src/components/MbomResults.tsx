@@ -72,11 +72,14 @@ export function MbomResults({
   const moldDataCount = data.filter(d => d.source === 'mold').length;
   const subCount = data.filter(d => d.source === 'sub').length;
 
-  // 從 parsedData 提取唯一的成品清單
+  // 從 parsedData 按品名分組，提取每組的成品料號（source='txt' 的第一筆）
   const uniqueProducts = data.reduce((acc, item) => {
-    const key = `${item.customerPartName}|${item.mainPartNumber}`;
-    if (!acc.some(p => `${p.customerPartName}|${p.mainPartNumber}` === key)) {
-      acc.push({ customerPartName: item.customerPartName, mainPartNumber: item.mainPartNumber });
+    // 只考慮 txt 來源的第一筆作為成品料號
+    if (item.source === 'txt' && !acc.some(p => p.customerPartName === item.customerPartName)) {
+      acc.push({ 
+        customerPartName: item.customerPartName, 
+        mainPartNumber: item.mainPartNumber 
+      });
     }
     return acc;
   }, [] as { customerPartName: string; mainPartNumber: string }[]);
